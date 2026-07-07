@@ -1,0 +1,77 @@
+name: Daily ETL
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      run_type:
+        description: "ETL run type"
+        required: false
+        default: "incremental-daily"
+        type: choice
+        options:
+          - incremental-daily
+          - incremental-hourly
+          - historical-daily
+          - historical-hourly
+          - forecast-daily
+          - forecast-hourly
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DISCORD_NOTIFICATIONS_ENABLED: "false"
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Run tests
+        run: poetry run pytest --cov=src --cov-report=term-missing
+
+      - name: Run migrations
+        run: poetry run alembic upgrade head
+
+      - name: Seed provinces
+        run: poetry run python scripts/seed_provinces.py
+
+      - name: Seed date dimension
+        run: poetry run python scripts/seed_dim_date.py
+
+      - name: Run ETL (scheduled — daily)
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && contains(inputs.run_type, 'daily'))
+        run: poetry run vwdp-etl --run-type ${{ github.event.inputs.run_type || 'incremental-daily' }}
+
+      - name: Run ETL (scheduled — hourly)
+        if: github.event_name == 'schedule'
+        run: poetry run vwdp-etl --run-type incremental-hourly
+
+      - name: Run ETL (manual — hourly)
+        if: github.event_name == 'workflow_dispatch' && contains(inputs.run_type, 'hourly')
+        run: poetry run vwdp-etl --run-type ${{ inputs.run_type }}
+
+      - name: Notify Discord on failure
+        if: failure() && env.DISCORD_NOTIFICATIONS_ENABLED == 'true'
+        run: |
+          python - <<'PY'
+          import os, requests
+          webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+          if webhook:
+              requests.post(
+                  webhook,
+                  json={"content": "VWDP Daily ETL failed. Check GitHub Actions logs."},
+                  timeout=10,
+              ).raise_for_status()
+          PY

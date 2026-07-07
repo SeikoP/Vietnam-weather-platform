@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "vietnam-weather-platform"
+version = "0.1.0"
+description = "Vietnam Weather Data Platform: ETL, warehouse, API, monitoring, and BI-ready PostgreSQL schema."
+authors = ["VWDP Team"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.14"
+alembic = "^1.16.0"
+fastapi = "^0.116.0"
+httpx = "^0.28.0"
+pandas = "^2.3.0"
+psycopg = { version = "^3.2.0", extras = ["binary"] }
+pydantic = "^2.11.0"
+pydantic-settings = "^2.10.0"
+python-dotenv = "^1.1.0"
+requests = "^2.32.0"
+sqlalchemy = "^2.0.0"
+structlog = "^25.4.0"
+uvicorn = { version = "^0.35.0", extras = ["standard"] }
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+coverage = "^7.9.0"
+pre-commit = "^4.2.0"
+pytest = "^8.0.0"
+pytest-cov = "^7.0.0"
+pytest-httpx = "^0.35.0"
+ruff = "^0.12.0"
+
+[tool.poetry.scripts]
+vwdp-etl = "src.etl.cli:main"
+vwdp-api = "src.api.cli:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
