@@ -41,8 +41,8 @@ class WeatherWarehouseLoader:
             constraint="uq_fact_weather_daily_province_date",
             set_=update_columns,
         )
-        result = self._session.execute(statement)
-        return result.rowcount or 0
+        self._session.execute(statement)
+        return len(records)
 
     def upsert_hourly(self, records: list[WeatherHourlyRecord], etl_run_id: int | None) -> int:
         if not records:
@@ -75,5 +75,5 @@ class WeatherWarehouseLoader:
             constraint="uq_fact_weather_hourly_province_time",
             set_=update_columns,
         )
-        result = self._session.execute(statement)
-        return result.rowcount or 0
+        self._session.execute(statement)
+        return len(records)
