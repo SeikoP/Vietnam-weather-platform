@@ -34,3 +34,10 @@ def test_build_rows_quarter_calculation() -> None:
     rows = build_rows(date(2024, 4, 1), date(2024, 4, 1))
 
     assert rows[0]["quarter"] == 2
+
+
+def test_build_rows_defaults_to_today() -> None:
+    rows = build_rows()
+
+    assert len(rows) >= 1
+    assert rows[-1]["date"] <= date.today()

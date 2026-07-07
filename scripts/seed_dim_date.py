@@ -6,14 +6,15 @@ from src.database.models import DimDate
 from src.database.session import SessionLocal
 
 START_DATE = date(2023, 6, 1)
-END_DATE = date(2035, 12, 31)
 
 
 def date_key(value: date) -> int:
     return int(value.strftime("%Y%m%d"))
 
 
-def build_rows(start_date: date = START_DATE, end_date: date = END_DATE) -> list[dict[str, object]]:
+def build_rows(start_date: date = START_DATE, end_date: date | None = None) -> list[dict[str, object]]:
+    if end_date is None:
+        end_date = date.today()
     rows: list[dict[str, object]] = []
     current = start_date
     while current <= end_date:
