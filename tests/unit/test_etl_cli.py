@@ -28,3 +28,16 @@ def test_historical_runs_use_longer_request_delay() -> None:
     assert _request_delay_seconds("historical-hourly") > _request_delay_seconds(
         "incremental-hourly"
     )
+
+
+def test_request_delay_override_allows_zero_for_demo_runs() -> None:
+    assert _request_delay_seconds("incremental-hourly", override=0) == 0
+
+
+def test_request_delay_override_rejects_negative_values() -> None:
+    try:
+        _request_delay_seconds("incremental-hourly", override=-1)
+    except ValueError as exc:
+        assert "--request-delay-seconds" in str(exc)
+    else:
+        raise AssertionError("Expected negative request delay to fail")

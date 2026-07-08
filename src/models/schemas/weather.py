@@ -12,18 +12,12 @@ class DailyWeatherResponse(BaseModel):
     temperature_2m_max: float | None = None
     temperature_2m_min: float | None = None
     apparent_temperature_mean: float | None = None
-    relative_humidity_2m_mean: float | None = None
-    dew_point_2m_mean: float | None = None
-    surface_pressure_mean: float | None = None
-    vapour_pressure_deficit_mean: float | None = None
     wind_speed_10m_max: float | None = None
     wind_gusts_10m_max: float | None = None
-    cloud_cover_mean: float | None = None
     shortwave_radiation_sum: float | None = None
     precipitation_sum: float | None = None
     rain_sum: float | None = None
     weather_code: int | None = None
-    soil_moisture_0_to_7cm_mean: float | None = None
 
 
 class HourlyWeatherResponse(BaseModel):

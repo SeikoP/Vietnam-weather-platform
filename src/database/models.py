@@ -12,11 +12,11 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
-    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
+from sqlalchemy.sql.sqltypes import REAL
 
 Base = declarative_base()
 
@@ -55,6 +55,18 @@ class DimDistrict(Base):
     daily_weather: Mapped[list["FactWeatherDaily"]] = relationship(back_populates="district")
 
 
+class DimHour(Base):
+    __tablename__ = "dim_hour"
+    __table_args__ = {"schema": "analyst"}
+
+    hour_key: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), nullable=False)
+    observed_date: Mapped[date] = mapped_column(Date, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), unique=True, nullable=False
+    )
+
+
 # ---------------------------------------------------------------------------
 # analyst schema — fact tables
 # ---------------------------------------------------------------------------
@@ -62,113 +74,91 @@ class DimDistrict(Base):
 
 class FactWeatherDaily(Base):
     __tablename__ = "fact_weather_daily"
-    __table_args__ = (
-        UniqueConstraint("district_id", "date_key", name="uq_fact_weather_daily_district_date"),
-        {"schema": "analyst"},
-    )
+    __table_args__ = {"schema": "analyst"}
 
-    weather_daily_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     district_id: Mapped[int] = mapped_column(
-        ForeignKey("analyst.dim_district.district_id"), nullable=False
+        ForeignKey("analyst.dim_district.district_id"), primary_key=True
     )
-    date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), nullable=False)
+    date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), primary_key=True)
     observed_date: Mapped[date] = mapped_column(Date, nullable=False)
-    temperature_2m_mean: Mapped[float | None] = mapped_column(Float)
-    temperature_2m_max: Mapped[float | None] = mapped_column(Float)
-    temperature_2m_min: Mapped[float | None] = mapped_column(Float)
-    apparent_temperature_mean: Mapped[float | None] = mapped_column(Float)
-    relative_humidity_2m_mean: Mapped[float | None] = mapped_column(Float)
-    dew_point_2m_mean: Mapped[float | None] = mapped_column(Float)
-    surface_pressure_mean: Mapped[float | None] = mapped_column(Float)
-    vapour_pressure_deficit_mean: Mapped[float | None] = mapped_column(Float)
-    wind_speed_10m_max: Mapped[float | None] = mapped_column(Float)
-    wind_gusts_10m_max: Mapped[float | None] = mapped_column(Float)
-    cloud_cover_mean: Mapped[float | None] = mapped_column(Float)
-    shortwave_radiation_sum: Mapped[float | None] = mapped_column(Float)
-    precipitation_sum: Mapped[float | None] = mapped_column(Float)
-    rain_sum: Mapped[float | None] = mapped_column(Float)
+    temperature_2m_mean: Mapped[float | None] = mapped_column(REAL)
+    temperature_2m_max: Mapped[float | None] = mapped_column(REAL)
+    temperature_2m_min: Mapped[float | None] = mapped_column(REAL)
+    apparent_temperature_mean: Mapped[float | None] = mapped_column(REAL)
+    wind_speed_10m_max: Mapped[float | None] = mapped_column(REAL)
+    wind_gusts_10m_max: Mapped[float | None] = mapped_column(REAL)
+    shortwave_radiation_sum: Mapped[float | None] = mapped_column(REAL)
+    precipitation_sum: Mapped[float | None] = mapped_column(REAL)
+    rain_sum: Mapped[float | None] = mapped_column(REAL)
     weather_code: Mapped[int | None] = mapped_column(SmallInteger)
-    soil_moisture_0_to_7cm_mean: Mapped[float | None] = mapped_column(Float)
-    source: Mapped[str] = mapped_column(String(50), default="open-meteo", nullable=False)
-    etl_run_id: Mapped[int | None] = mapped_column(BigInteger)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
     district: Mapped[DimDistrict] = relationship(back_populates="daily_weather")
 
 
 class FactWeatherHourly(Base):
     __tablename__ = "fact_weather_hourly"
-    __table_args__ = (
-        UniqueConstraint("district_id", "observed_at", name="uq_fact_weather_hourly_district_time"),
-        {"schema": "analyst"},
-    )
+    __table_args__ = {"schema": "analyst"}
 
-    weather_hourly_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     district_id: Mapped[int] = mapped_column(
-        ForeignKey("analyst.dim_district.district_id"), nullable=False
+        ForeignKey("analyst.dim_district.district_id"), primary_key=True
     )
-    date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), nullable=False)
-    observed_date: Mapped[date] = mapped_column(Date, nullable=False)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    temperature_2m: Mapped[float | None] = mapped_column(Float)
-    apparent_temperature: Mapped[float | None] = mapped_column(Float)
-    relative_humidity_2m: Mapped[float | None] = mapped_column(Float)
-    dew_point_2m: Mapped[float | None] = mapped_column(Float)
-    surface_pressure: Mapped[float | None] = mapped_column(Float)
-    vapour_pressure_deficit: Mapped[float | None] = mapped_column(Float)
-    wind_speed_10m: Mapped[float | None] = mapped_column(Float)
-    wind_gusts_10m: Mapped[float | None] = mapped_column(Float)
-    cloud_cover: Mapped[float | None] = mapped_column(Float)
-    shortwave_radiation: Mapped[float | None] = mapped_column(Float)
-    precipitation: Mapped[float | None] = mapped_column(Float)
-    rain: Mapped[float | None] = mapped_column(Float)
+    hour_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_hour.hour_key"), primary_key=True)
+    temperature_2m: Mapped[float | None] = mapped_column(REAL)
+    apparent_temperature: Mapped[float | None] = mapped_column(REAL)
+    relative_humidity_2m: Mapped[float | None] = mapped_column(REAL)
+    dew_point_2m: Mapped[float | None] = mapped_column(REAL)
+    surface_pressure: Mapped[float | None] = mapped_column(REAL)
+    vapour_pressure_deficit: Mapped[float | None] = mapped_column(REAL)
+    wind_speed_10m: Mapped[float | None] = mapped_column(REAL)
+    wind_gusts_10m: Mapped[float | None] = mapped_column(REAL)
+    cloud_cover: Mapped[float | None] = mapped_column(REAL)
+    shortwave_radiation: Mapped[float | None] = mapped_column(REAL)
+    precipitation: Mapped[float | None] = mapped_column(REAL)
+    rain: Mapped[float | None] = mapped_column(REAL)
     weather_code: Mapped[int | None] = mapped_column(SmallInteger)
-    soil_moisture_0_to_7cm: Mapped[float | None] = mapped_column(Float)
-    source: Mapped[str] = mapped_column(String(50), default="open-meteo", nullable=False)
-    etl_run_id: Mapped[int | None] = mapped_column(BigInteger)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    soil_moisture_0_to_7cm: Mapped[float | None] = mapped_column(REAL)
+
+    hour: Mapped[DimHour] = relationship()
+
+    @property
+    def observed_at(self) -> datetime:
+        return self.hour.observed_at
+
+    @property
+    def observed_date(self) -> date:
+        return self.hour.observed_date
 
 
 class FactAqiHourly(Base):
     __tablename__ = "fact_aqi_hourly"
-    __table_args__ = (
-        UniqueConstraint("district_id", "observed_at", name="uq_fact_aqi_hourly_district_time"),
-        {"schema": "analyst"},
-    )
+    __table_args__ = {"schema": "analyst"}
 
-    aqi_hourly_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     district_id: Mapped[int] = mapped_column(
-        ForeignKey("analyst.dim_district.district_id"), nullable=False
+        ForeignKey("analyst.dim_district.district_id"), primary_key=True
     )
-    date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), nullable=False)
-    observed_date: Mapped[date] = mapped_column(Date, nullable=False)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    pm10: Mapped[float | None] = mapped_column(Float)
-    pm2_5: Mapped[float | None] = mapped_column(Float)
-    carbon_monoxide: Mapped[float | None] = mapped_column(Float)
-    carbon_dioxide: Mapped[float | None] = mapped_column(Float)
-    nitrogen_dioxide: Mapped[float | None] = mapped_column(Float)
-    sulphur_dioxide: Mapped[float | None] = mapped_column(Float)
-    ozone: Mapped[float | None] = mapped_column(Float)
-    aerosol_optical_depth: Mapped[float | None] = mapped_column(Float)
-    dust: Mapped[float | None] = mapped_column(Float)
-    uv_index: Mapped[float | None] = mapped_column(Float)
-    uv_index_clear_sky: Mapped[float | None] = mapped_column(Float)
-    methane: Mapped[float | None] = mapped_column(Float)
-    source: Mapped[str] = mapped_column(
-        String(50), default="open-meteo-air-quality", nullable=False
-    )
-    etl_run_id: Mapped[int | None] = mapped_column(BigInteger)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    hour_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_hour.hour_key"), primary_key=True)
+    pm10: Mapped[float | None] = mapped_column(REAL)
+    pm2_5: Mapped[float | None] = mapped_column(REAL)
+    carbon_monoxide: Mapped[float | None] = mapped_column(REAL)
+    carbon_dioxide: Mapped[float | None] = mapped_column(REAL)
+    nitrogen_dioxide: Mapped[float | None] = mapped_column(REAL)
+    sulphur_dioxide: Mapped[float | None] = mapped_column(REAL)
+    ozone: Mapped[float | None] = mapped_column(REAL)
+    aerosol_optical_depth: Mapped[float | None] = mapped_column(REAL)
+    dust: Mapped[float | None] = mapped_column(REAL)
+    uv_index: Mapped[float | None] = mapped_column(REAL)
+    uv_index_clear_sky: Mapped[float | None] = mapped_column(REAL)
+    methane: Mapped[float | None] = mapped_column(REAL)
+
+    hour: Mapped[DimHour] = relationship()
+
+    @property
+    def observed_at(self) -> datetime:
+        return self.hour.observed_at
+
+    @property
+    def observed_date(self) -> date:
+        return self.hour.observed_date
 
 
 # ---------------------------------------------------------------------------

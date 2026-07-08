@@ -3,9 +3,9 @@
 from datetime import date
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from src.database.models import FactAqiHourly, FactWeatherDaily, FactWeatherHourly
+from src.database.models import DimHour, FactAqiHourly, FactWeatherDaily, FactWeatherHourly
 
 
 class WeatherRepository:
@@ -31,32 +31,36 @@ class WeatherRepository:
     def list_hourly(
         self, district_id: int | None, start_date: date | None, end_date: date | None
     ) -> list[FactWeatherHourly]:
-        stmt = select(FactWeatherHourly)
+        stmt = select(FactWeatherHourly).join(FactWeatherHourly.hour).options(
+            joinedload(FactWeatherHourly.hour)
+        )
         if district_id is not None:
             stmt = stmt.where(FactWeatherHourly.district_id == district_id)
         if start_date is not None:
-            stmt = stmt.where(FactWeatherHourly.observed_date >= start_date)
+            stmt = stmt.where(DimHour.observed_date >= start_date)
         if end_date is not None:
-            stmt = stmt.where(FactWeatherHourly.observed_date <= end_date)
+            stmt = stmt.where(DimHour.observed_date <= end_date)
         return list(
             self._session.scalars(
-                stmt.order_by(FactWeatherHourly.observed_at, FactWeatherHourly.district_id)
+                stmt.order_by(DimHour.observed_at, FactWeatherHourly.district_id)
             )
         )
 
     def list_aqi_hourly(
         self, district_id: int | None, start_date: date | None, end_date: date | None
     ) -> list[FactAqiHourly]:
-        stmt = select(FactAqiHourly)
+        stmt = select(FactAqiHourly).join(FactAqiHourly.hour).options(
+            joinedload(FactAqiHourly.hour)
+        )
         if district_id is not None:
             stmt = stmt.where(FactAqiHourly.district_id == district_id)
         if start_date is not None:
-            stmt = stmt.where(FactAqiHourly.observed_date >= start_date)
+            stmt = stmt.where(DimHour.observed_date >= start_date)
         if end_date is not None:
-            stmt = stmt.where(FactAqiHourly.observed_date <= end_date)
+            stmt = stmt.where(DimHour.observed_date <= end_date)
         return list(
             self._session.scalars(
-                stmt.order_by(FactAqiHourly.observed_at, FactAqiHourly.district_id)
+                stmt.order_by(DimHour.observed_at, FactAqiHourly.district_id)
             )
         )
 
