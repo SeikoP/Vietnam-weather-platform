@@ -181,5 +181,15 @@ class OpenMeteoClient:
                 last_error = exc
                 LOGGER.warning("open_meteo_retry", url=url, attempt=attempt, error=str(exc))
                 if attempt < self._max_retries:
-                    sleep(min(2 ** (attempt - 1), 8))
+                    sleep(_retry_delay_seconds(exc, attempt))
         raise ExternalApiError(f"Open-Meteo request failed after retries: {last_error}")
+
+
+def _retry_delay_seconds(exc: requests.RequestException, attempt: int) -> int:
+    status_code = exc.response.status_code if exc.response is not None else None
+    if status_code == 429:
+        retry_after = exc.response.headers.get("Retry-After") if exc.response is not None else None
+        if retry_after and retry_after.isdigit():
+            return min(int(retry_after), 60)
+        return min(15 * attempt, 60)
+    return min(2 ** (attempt - 1), 8)
