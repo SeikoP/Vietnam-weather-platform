@@ -149,8 +149,6 @@ class FactAqiHourly(Base):
     date_key: Mapped[int] = mapped_column(ForeignKey("analyst.dim_date.date_key"), nullable=False)
     observed_date: Mapped[date] = mapped_column(Date, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    european_aqi: Mapped[float | None] = mapped_column(Float)
-    us_aqi: Mapped[float | None] = mapped_column(Float)
     pm10: Mapped[float | None] = mapped_column(Float)
     pm2_5: Mapped[float | None] = mapped_column(Float)
     carbon_monoxide: Mapped[float | None] = mapped_column(Float)
@@ -162,7 +160,6 @@ class FactAqiHourly(Base):
     dust: Mapped[float | None] = mapped_column(Float)
     uv_index: Mapped[float | None] = mapped_column(Float)
     uv_index_clear_sky: Mapped[float | None] = mapped_column(Float)
-    ammonia: Mapped[float | None] = mapped_column(Float)
     methane: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(
         String(50), default="open-meteo-air-quality", nullable=False

@@ -52,8 +52,6 @@ class AqiHourlyResponse(BaseModel):
 
     district_id: int
     observed_at: datetime
-    european_aqi: float | None = None
-    us_aqi: float | None = None
     pm10: float | None = None
     pm2_5: float | None = None
     carbon_monoxide: float | None = None
@@ -65,7 +63,6 @@ class AqiHourlyResponse(BaseModel):
     dust: float | None = None
     uv_index: float | None = None
     uv_index_clear_sky: float | None = None
-    ammonia: float | None = None
     methane: float | None = None
 
 

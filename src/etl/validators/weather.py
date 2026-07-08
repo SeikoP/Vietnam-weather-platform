@@ -77,8 +77,6 @@ class AqiHourlyRecord:
     observed_at: datetime
     latitude: float
     longitude: float
-    european_aqi: float | None
-    us_aqi: float | None
     pm10: float | None
     pm2_5: float | None
     carbon_monoxide: float | None
@@ -90,7 +88,6 @@ class AqiHourlyRecord:
     dust: float | None
     uv_index: float | None
     uv_index_clear_sky: float | None
-    ammonia: float | None
     methane: float | None
 
     @property
@@ -155,8 +152,6 @@ class WeatherValidator:
         errors: list[ValidationErrorRecord] = []
         errors.extend(self._range("latitude", record.latitude, 20.5, 21.5))
         errors.extend(self._range("longitude", record.longitude, 105.2, 106.1))
-        errors.extend(self._range("european_aqi", record.european_aqi, 0, 500))
-        errors.extend(self._range("us_aqi", record.us_aqi, 0, 500))
         errors.extend(self._range("pm10", record.pm10, 0, 1000))
         errors.extend(self._range("pm2_5", record.pm2_5, 0, 500))
         errors.extend(self._range("carbon_monoxide", record.carbon_monoxide, 0, 100000))

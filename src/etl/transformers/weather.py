@@ -101,8 +101,6 @@ class WeatherTransformer:
                     observed_at=_parse_datetime(iso_timestamp),
                     latitude=latitude,
                     longitude=longitude,
-                    european_aqi=self._val(hourly, "european_aqi", index),
-                    us_aqi=self._val(hourly, "us_aqi", index),
                     pm10=self._val(hourly, "pm10", index),
                     pm2_5=self._val(hourly, "pm2_5", index),
                     carbon_monoxide=self._val(hourly, "carbon_monoxide", index),
@@ -114,7 +112,6 @@ class WeatherTransformer:
                     dust=self._val(hourly, "dust", index),
                     uv_index=self._val(hourly, "uv_index", index),
                     uv_index_clear_sky=self._val(hourly, "uv_index_clear_sky", index),
-                    ammonia=self._val(hourly, "ammonia", index),
                     methane=self._val(hourly, "methane", index),
                 )
             )

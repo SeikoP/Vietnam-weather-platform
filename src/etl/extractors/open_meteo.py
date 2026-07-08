@@ -53,7 +53,6 @@ class OpenMeteoClient:
         "dust",
         "uv_index",
         "uv_index_clear_sky",
-        "ammonia",
         "methane",
     ]
 
