@@ -12,7 +12,9 @@ def date_key(value: date) -> int:
     return int(value.strftime("%Y%m%d"))
 
 
-def build_rows(start_date: date = START_DATE, end_date: date | None = None) -> list[dict[str, object]]:
+def build_rows(
+    start_date: date = START_DATE, end_date: date | None = None
+) -> list[dict[str, object]]:
     if end_date is None:
         end_date = date.today()
     rows: list[dict[str, object]] = []

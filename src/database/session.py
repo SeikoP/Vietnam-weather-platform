@@ -3,7 +3,8 @@ from __future__ import annotations
 from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine
-from sqlalchemy.orm import Session as _Session, sessionmaker
+from sqlalchemy.orm import Session as _Session
+from sqlalchemy.orm import sessionmaker
 
 
 @lru_cache(maxsize=1)

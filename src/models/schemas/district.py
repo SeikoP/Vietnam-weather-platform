@@ -1,10 +1,10 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class ProvinceResponse(BaseModel):
+class DistrictResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    province_id: int
-    province_name: str
+    district_id: int
+    district_name: str
     latitude: float
     longitude: float

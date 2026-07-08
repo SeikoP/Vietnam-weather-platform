@@ -2,75 +2,82 @@
 
 from datetime import date
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.database.models import FactWeatherDaily, FactWeatherHourly
+from src.database.models import FactAqiHourly, FactWeatherDaily, FactWeatherHourly
 
 
 class WeatherRepository:
-    """Repository for weather data access."""
-
     def __init__(self, session: Session) -> None:
-        """Initialize repository with database session."""
         self._session = session
 
     def list_daily(
-        self,
-        province_id: int | None,
-        start_date: date | None,
-        end_date: date | None,
+        self, district_id: int | None, start_date: date | None, end_date: date | None
     ) -> list[FactWeatherDaily]:
-        """List daily weather records with optional filters."""
-        statement: Select[tuple[FactWeatherDaily]] = select(FactWeatherDaily)
-        if province_id is not None:
-            statement = statement.where(FactWeatherDaily.province_id == province_id)
+        stmt = select(FactWeatherDaily)
+        if district_id is not None:
+            stmt = stmt.where(FactWeatherDaily.district_id == district_id)
         if start_date is not None:
-            statement = statement.where(FactWeatherDaily.observed_date >= start_date)
+            stmt = stmt.where(FactWeatherDaily.observed_date >= start_date)
         if end_date is not None:
-            statement = statement.where(FactWeatherDaily.observed_date <= end_date)
-        statement = statement.order_by(FactWeatherDaily.observed_date, FactWeatherDaily.province_id)
-        return list(self._session.scalars(statement))
+            stmt = stmt.where(FactWeatherDaily.observed_date <= end_date)
+        return list(
+            self._session.scalars(
+                stmt.order_by(FactWeatherDaily.observed_date, FactWeatherDaily.district_id)
+            )
+        )
 
     def list_hourly(
-        self,
-        province_id: int | None,
-        start_date: date | None,
-        end_date: date | None,
+        self, district_id: int | None, start_date: date | None, end_date: date | None
     ) -> list[FactWeatherHourly]:
-        """List hourly weather records with optional filters."""
-        statement: Select[tuple[FactWeatherHourly]] = select(FactWeatherHourly)
-        if province_id is not None:
-            statement = statement.where(FactWeatherHourly.province_id == province_id)
+        stmt = select(FactWeatherHourly)
+        if district_id is not None:
+            stmt = stmt.where(FactWeatherHourly.district_id == district_id)
         if start_date is not None:
-            statement = statement.where(FactWeatherHourly.observed_date >= start_date)
+            stmt = stmt.where(FactWeatherHourly.observed_date >= start_date)
         if end_date is not None:
-            statement = statement.where(FactWeatherHourly.observed_date <= end_date)
-        statement = statement.order_by(FactWeatherHourly.observed_at, FactWeatherHourly.province_id)
-        return list(self._session.scalars(statement))
+            stmt = stmt.where(FactWeatherHourly.observed_date <= end_date)
+        return list(
+            self._session.scalars(
+                stmt.order_by(FactWeatherHourly.observed_at, FactWeatherHourly.district_id)
+            )
+        )
+
+    def list_aqi_hourly(
+        self, district_id: int | None, start_date: date | None, end_date: date | None
+    ) -> list[FactAqiHourly]:
+        stmt = select(FactAqiHourly)
+        if district_id is not None:
+            stmt = stmt.where(FactAqiHourly.district_id == district_id)
+        if start_date is not None:
+            stmt = stmt.where(FactAqiHourly.observed_date >= start_date)
+        if end_date is not None:
+            stmt = stmt.where(FactAqiHourly.observed_date <= end_date)
+        return list(
+            self._session.scalars(
+                stmt.order_by(FactAqiHourly.observed_at, FactAqiHourly.district_id)
+            )
+        )
 
     def daily_statistics(
-        self,
-        province_id: int | None,
-        start_date: date | None,
-        end_date: date | None,
-    ) -> dict[str, object]:
-        """Calculate daily weather statistics with optional filters."""
-        statement = select(
+        self, district_id: int | None, start_date: date | None, end_date: date | None
+    ) -> dict:
+        stmt = select(
             func.avg(FactWeatherDaily.temperature_2m_mean),
             func.max(FactWeatherDaily.temperature_2m_max),
             func.min(FactWeatherDaily.temperature_2m_min),
             func.sum(FactWeatherDaily.precipitation_sum),
         )
-        if province_id is not None:
-            statement = statement.where(FactWeatherDaily.province_id == province_id)
+        if district_id is not None:
+            stmt = stmt.where(FactWeatherDaily.district_id == district_id)
         if start_date is not None:
-            statement = statement.where(FactWeatherDaily.observed_date >= start_date)
+            stmt = stmt.where(FactWeatherDaily.observed_date >= start_date)
         if end_date is not None:
-            statement = statement.where(FactWeatherDaily.observed_date <= end_date)
-        row = self._session.execute(statement).one()
+            stmt = stmt.where(FactWeatherDaily.observed_date <= end_date)
+        row = self._session.execute(stmt).one()
         return {
-            "province_id": province_id,
+            "district_id": district_id,
             "start_date": start_date,
             "end_date": end_date,
             "avg_temperature_2m_mean": row[0],

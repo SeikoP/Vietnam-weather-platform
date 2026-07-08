@@ -13,10 +13,13 @@ on:
         options:
           - incremental-daily
           - incremental-hourly
+          - incremental-aqi-hourly
           - historical-daily
           - historical-hourly
+          - historical-aqi-hourly
           - forecast-daily
           - forecast-hourly
+          - forecast-aqi-hourly
 
 jobs:
   etl:
@@ -57,6 +60,10 @@ jobs:
       - name: Run ETL (scheduled — hourly)
         if: github.event_name == 'schedule'
         run: poetry run vwdp-etl --run-type incremental-hourly
+
+      - name: Run ETL (scheduled — AQI hourly)
+        if: github.event_name == 'schedule'
+        run: poetry run vwdp-etl --run-type incremental-aqi-hourly
 
       - name: Run ETL (manual — hourly)
         if: github.event_name == 'workflow_dispatch' && contains(inputs.run_type, 'hourly')
