@@ -1,7 +1,8 @@
 """ETL command-line interface."""
 
 import argparse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,10 @@ from src.etl.validators.weather import WeatherValidator
 from src.monitoring.logging import configure_logging, get_logger
 
 HISTORICAL_START_DATE = date(2023, 6, 1)
+INCREMENTAL_LOOKBACK_DAYS = 3
+HISTORICAL_REQUEST_DELAY_SECONDS = 10.0
+STANDARD_REQUEST_DELAY_SECONDS = 1.5
+VIETNAM_TZ = ZoneInfo("Asia/Bangkok")
 RUN_TYPES = {
     "historical-daily",
     "historical-hourly",
@@ -34,10 +39,13 @@ LOGGER = get_logger(__name__)
 def resolve_date_range(run_type: str, today: date | None = None) -> tuple[date, date]:
     if run_type not in RUN_TYPES:
         raise ValueError(f"Unsupported run type: {run_type}")
-    current_date = today or date.today()
+    current_date = today or datetime.now(VIETNAM_TZ).date()
     end_date = current_date - timedelta(days=1)
     if run_type.startswith("historical"):
         return HISTORICAL_START_DATE, end_date
+    if run_type.startswith("incremental"):
+        start_date = end_date - timedelta(days=INCREMENTAL_LOOKBACK_DAYS - 1)
+        return start_date, end_date
     return end_date, end_date
 
 
@@ -46,6 +54,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-type", choices=sorted(RUN_TYPES), default="incremental-daily")
     parser.add_argument("--start-date", type=date.fromisoformat, default=None)
     parser.add_argument("--end-date", type=date.fromisoformat, default=None)
+    parser.add_argument(
+        "--district-id",
+        action="append",
+        type=int,
+        default=None,
+        help="Limit ETL to one district id. Repeat for multiple districts.",
+    )
     return parser.parse_args()
 
 
@@ -59,34 +74,46 @@ def main() -> int:
 
     try:
         with SessionLocal() as session:
-            districts = _get_districts(session)
             if args.start_date and args.end_date:
                 start_date, end_date = args.start_date, args.end_date
             else:
                 start_date, end_date = resolve_date_range(args.run_type)
 
             pipeline, etl_run_id = _create_pipeline(session, args.run_type)
+            session.commit()
+            districts = _get_districts(session, args.district_id)
+            etl_run_service = EtlRunService(session)
 
-            if args.run_type == "forecast-daily":
-                affected_rows = pipeline.run_forecast_daily(districts, etl_run_id=etl_run_id)
-            elif args.run_type == "forecast-hourly":
-                affected_rows = pipeline.run_forecast_hourly(districts, etl_run_id=etl_run_id)
-            elif args.run_type == "forecast-aqi-hourly":
-                affected_rows = pipeline.run_forecast_aqi_hourly(districts, etl_run_id=etl_run_id)
-            elif args.run_type in ("historical-aqi-hourly", "incremental-aqi-hourly"):
-                affected_rows = pipeline.run_historical_aqi_hourly(
-                    districts, start_date, end_date, etl_run_id
+            try:
+                affected_rows = _run_pipeline(
+                    pipeline=pipeline,
+                    run_type=args.run_type,
+                    districts=districts,
+                    start_date=start_date,
+                    end_date=end_date,
+                    etl_run_id=etl_run_id,
                 )
-            elif args.run_type.endswith("hourly"):
-                affected_rows = pipeline.run_historical_hourly(
-                    districts, start_date, end_date, etl_run_id
+            except Exception as exc:
+                session.rollback()
+                etl_run_service.complete_run(
+                    etl_run_id=etl_run_id,
+                    status="failed",
+                    rows_inserted=0,
+                    rows_updated=0,
+                    rows_skipped=0,
+                    error_summary=str(exc),
                 )
-            else:
-                affected_rows = pipeline.run_historical_daily(
-                    districts, start_date, end_date, etl_run_id
-                )
+                session.commit()
+                raise
 
-            _log_summary(session, args.run_type, affected_rows, etl_run_id)
+            _log_summary(session, args.run_type, affected_rows, etl_run_id, start_date, end_date)
+            etl_run_service.complete_run(
+                etl_run_id=etl_run_id,
+                status="completed",
+                rows_inserted=affected_rows,
+                rows_updated=0,
+                rows_skipped=0,
+            )
             session.commit()
             return 0
 
@@ -98,10 +125,20 @@ def main() -> int:
         return 1
 
 
-def _get_districts(session: Session) -> list:
+def _get_districts(session: Session, district_ids: list[int] | None = None) -> list:
     from src.repositories.district_repository import DistrictRepository
 
-    return DistrictRepository(session).list_all()
+    districts = DistrictRepository(session).list_all()
+    if not district_ids:
+        return districts
+
+    requested_ids = set(district_ids)
+    selected = [district for district in districts if district.district_id in requested_ids]
+    found_ids = {district.district_id for district in selected}
+    missing_ids = sorted(requested_ids - found_ids)
+    if missing_ids:
+        raise ValueError(f"Unknown district id(s): {missing_ids}")
+    return selected
 
 
 def _create_pipeline(session: Session, run_type: str) -> tuple[WeatherPipeline, int]:
@@ -120,16 +157,61 @@ def _create_pipeline(session: Session, run_type: str) -> tuple[WeatherPipeline, 
         transformer=WeatherTransformer(),
         validator=WeatherValidator(),
         etl_run_service=etl_run_service,
+        district_request_delay_seconds=_request_delay_seconds(run_type),
     )
     return pipeline, etl_run_id
 
 
-def _log_summary(session: Session, run_type: str, affected_rows: int, etl_run_id: int) -> None:
+def _request_delay_seconds(run_type: str) -> float:
+    if run_type.startswith("historical"):
+        return HISTORICAL_REQUEST_DELAY_SECONDS
+    return STANDARD_REQUEST_DELAY_SECONDS
+
+
+def _run_pipeline(
+    pipeline: WeatherPipeline,
+    run_type: str,
+    districts: list,
+    start_date: date,
+    end_date: date,
+    etl_run_id: int,
+) -> int:
+    if run_type == "forecast-daily":
+        return pipeline.run_forecast_daily(districts, etl_run_id=etl_run_id)
+    if run_type == "forecast-hourly":
+        return pipeline.run_forecast_hourly(districts, etl_run_id=etl_run_id)
+    if run_type == "forecast-aqi-hourly":
+        return pipeline.run_forecast_aqi_hourly(districts, etl_run_id=etl_run_id)
+    if run_type in ("historical-aqi-hourly", "incremental-aqi-hourly"):
+        return pipeline.run_historical_aqi_hourly(districts, start_date, end_date, etl_run_id)
+    if run_type.endswith("hourly"):
+        return pipeline.run_historical_hourly(districts, start_date, end_date, etl_run_id)
+    return pipeline.run_historical_daily(districts, start_date, end_date, etl_run_id)
+
+
+def _log_summary(
+    session: Session,
+    run_type: str,
+    affected_rows: int,
+    etl_run_id: int,
+    start_date: date,
+    end_date: date,
+) -> None:
     EtlRunService(session).log(
         etl_run_id=etl_run_id,
         level="INFO",
         event_name="etl_summary",
         message=f"ETL run {run_type} completed",
-        context={"affected_rows": affected_rows},
+        context={
+            "affected_rows": affected_rows,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        },
     )
-    LOGGER.info("etl_run_complete", run_type=run_type, rows_loaded=affected_rows)
+    LOGGER.info(
+        "etl_run_complete",
+        run_type=run_type,
+        rows_loaded=affected_rows,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+    )

@@ -47,7 +47,7 @@ jobs:
       - name: Run migrations
         run: poetry run alembic upgrade head
 
-      - name: Seed provinces
+      - name: Seed districts
         run: poetry run python scripts/seed_provinces.py
 
       - name: Seed date dimension

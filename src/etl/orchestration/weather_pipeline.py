@@ -1,6 +1,7 @@
 """Weather + AQI ETL orchestration pipeline."""
 
 from collections.abc import Callable, Iterable
+from time import sleep
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from src.etl.validators.weather import (
 from src.monitoring.logging import get_logger
 
 LOGGER = get_logger(__name__)
+DEFAULT_DISTRICT_REQUEST_DELAY_SECONDS = 1.5
 
 
 class WeatherPipeline:
@@ -29,12 +31,14 @@ class WeatherPipeline:
         transformer: WeatherTransformer,
         validator: WeatherValidator,
         etl_run_service: EtlRunService | None = None,
+        district_request_delay_seconds: float = DEFAULT_DISTRICT_REQUEST_DELAY_SECONDS,
     ) -> None:
         self._session = session
         self._client = client
         self._transformer = transformer
         self._validator = validator
         self._etl_run_service = etl_run_service
+        self._district_request_delay_seconds = district_request_delay_seconds
 
     def _log_validation_error(
         self,
@@ -97,8 +101,8 @@ class WeatherPipeline:
 
     def _collect_valid_records(
         self,
-        districts: Iterable[DimDistrict],
-        fetch_payload: Callable[[DimDistrict], dict[str, Any]],
+        district: DimDistrict,
+        payload: dict[str, Any],
         transform_payload: Callable[[DimDistrict, dict[str, Any]], list[Any]],
         validate_record: Callable[[Any], list[Any]],
         etl_run_id: int | None,
@@ -106,30 +110,23 @@ class WeatherPipeline:
         valid: list[Any] = []
         skipped = 0
         rejected = 0
-        for district in districts:
-            try:
-                payload = fetch_payload(district)
-            except Exception as exc:
-                self._log_extract_error(etl_run_id, district, exc)
-                skipped += 1
-                continue
 
-            for record in transform_payload(district, payload):
-                errors = validate_record(record)
-                if errors:
-                    skipped += 1
-                    rejected += len(errors)
-                    for error in errors:
-                        self._log_validation_error(
-                            etl_run_id,
-                            record,
-                            error.field_name,
-                            error.invalid_value,
-                            error.reason,
-                            error.severity,
-                        )
-                else:
-                    valid.append(record)
+        for record in transform_payload(district, payload):
+            errors = validate_record(record)
+            if errors:
+                skipped += 1
+                rejected += len(errors)
+                for error in errors:
+                    self._log_validation_error(
+                        etl_run_id,
+                        record,
+                        error.field_name,
+                        error.invalid_value,
+                        error.reason,
+                        error.severity,
+                    )
+            else:
+                valid.append(record)
         return valid, skipped, rejected
 
     def _run_district_pipeline(
@@ -142,12 +139,31 @@ class WeatherPipeline:
         event_name: str,
         etl_run_id: int | None,
     ) -> int:
-        valid, skipped, rejected = self._collect_valid_records(
-            districts, fetch_payload, transform_payload, validate_record, etl_run_id
-        )
-        rows = load_records(valid, etl_run_id)
-        self._finish_log(etl_run_id, event_name, rows, skipped, rejected)
-        return rows
+        total_rows = 0
+        total_skipped = 0
+        total_rejected = 0
+
+        for district in districts:
+            try:
+                payload = fetch_payload(district)
+            except Exception as exc:
+                self._log_extract_error(etl_run_id, district, exc)
+                total_skipped += 1
+                self._session.commit()
+                sleep(self._district_request_delay_seconds)
+                continue
+
+            valid, skipped, rejected = self._collect_valid_records(
+                district, payload, transform_payload, validate_record, etl_run_id
+            )
+            total_rows += load_records(valid, etl_run_id)
+            total_skipped += skipped
+            total_rejected += rejected
+            self._session.commit()
+            sleep(self._district_request_delay_seconds)
+
+        self._finish_log(etl_run_id, event_name, total_rows, total_skipped, total_rejected)
+        return total_rows
 
     def _transform_daily(self, district: DimDistrict, payload: dict[str, Any]):
         return self._transformer.daily_from_open_meteo(
