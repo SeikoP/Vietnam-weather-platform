@@ -1,22 +1,33 @@
-# Warehouse Design
+# Thiết Kế Warehouse
 
-The warehouse schema follows a star-schema model.
+```mermaid
+erDiagram
+    DIM_DATE ||--o{ FACT_WEATHER_DAILY : date_key
+    DIM_DATE ||--o{ DIM_HOUR : date_key
+    DIM_HOUR ||--o{ FACT_WEATHER_HOURLY : hour_key
+    DIM_HOUR ||--o{ FACT_AQI_HOURLY : hour_key
+    DIM_DISTRICT ||--o{ FACT_WEATHER_DAILY : district_id
+    DIM_DISTRICT ||--o{ FACT_WEATHER_HOURLY : district_id
+    DIM_DISTRICT ||--o{ FACT_AQI_HOURLY : district_id
+```
 
-## Dimensions
+## Bảng Chính
 
-- `warehouse.dim_date`: calendar dimension keyed by `date_key`.
-- `warehouse.dim_province`: historical 63-province Vietnam model with coordinates.
-
-## Facts
-
-- `warehouse.fact_weather_daily`: one row per province per date.
-- `warehouse.fact_weather_hourly`: one row per province per timestamp.
-
-## Monitoring
-
+- `analyst.dim_date`
+- `analyst.dim_hour`
+- `analyst.dim_district`
+- `analyst.fact_weather_daily`
+- `analyst.fact_weather_hourly`
+- `analyst.fact_aqi_hourly`
 - `monitoring.etl_runs`
 - `monitoring.etl_logs`
 - `monitoring.validation_errors`
 - `monitoring.api_requests`
 
-Power BI should connect directly to Supabase PostgreSQL and import or DirectQuery the warehouse schema. CSV intermediates are intentionally avoided.
+## Làm Sạch Dữ Liệu
+
+Hourly weather và AQI dùng chung `analyst.dim_hour` để tránh lặp các trường thời gian trong
+từng fact table. Các fact table không lưu `source`, `etl_run_id`, `created_at`, `updated_at`
+vì monitoring đã nằm trong schema `monitoring` và các source hiện là cố định.
+
+Chi tiết quy trình cleanup nằm ở `docs/database/data-cleanup.md`.

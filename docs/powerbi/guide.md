@@ -1,16 +1,16 @@
-# Power BI Guide
+# Hướng Dẫn Power BI
 
-Power BI connects directly to Supabase PostgreSQL.
+Power BI đọc schema `analyst` từ PostgreSQL.
 
-Recommended tables:
+## Bảng
 
-- `warehouse.dim_date`
-- `warehouse.dim_province`
-- `warehouse.fact_weather_daily`
+- `dim_date`
+- `dim_district`
+- `fact_weather_daily`
+- `fact_weather_hourly`
+- `fact_aqi_hourly`
 
-Relationships:
+## Quan Hệ
 
-- `fact_weather_daily.date_key` to `dim_date.date_key`
-- `fact_weather_daily.province_id` to `dim_province.province_id`
-
-Use `dim_date` for calendar slicers and `dim_province` for geographic filtering.
+- `fact_*.date_key` -> `dim_date.date_key`
+- `fact_*.district_id` -> `dim_district.district_id`
