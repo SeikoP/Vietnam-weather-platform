@@ -20,7 +20,7 @@ def test_transformer_builds_daily_records_from_open_meteo_payload() -> None:
     }
 
     records = WeatherTransformer().daily_from_open_meteo(
-        province_id=1,
+        district_id=1,
         latitude=21.0278,
         longitude=105.8342,
         payload=payload,
