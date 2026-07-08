@@ -1,13 +1,19 @@
 """Domain and API models."""
 
+from .schemas.district import DistrictResponse
 from .schemas.health import HealthResponse
-from .schemas.province import ProvinceResponse
-from .schemas.weather import DailyWeatherResponse, HourlyWeatherResponse, WeatherStatisticsResponse
+from .schemas.weather import (
+    AqiHourlyResponse,
+    DailyWeatherResponse,
+    HourlyWeatherResponse,
+    WeatherStatisticsResponse,
+)
 
 __all__ = [
-    "HealthResponse",
-    "ProvinceResponse",
+    "AqiHourlyResponse",
     "DailyWeatherResponse",
+    "DistrictResponse",
+    "HealthResponse",
     "HourlyWeatherResponse",
     "WeatherStatisticsResponse",
 ]
