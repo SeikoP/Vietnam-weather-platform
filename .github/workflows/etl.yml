@@ -20,6 +20,40 @@ on:
           - forecast-daily
           - forecast-hourly
           - forecast-aqi-hourly
+      demo_mode:
+        description: "Run a short demo-safe ETL"
+        required: false
+        default: false
+        type: boolean
+      district_ids:
+        description: "Comma-separated district ids for manual/demo runs"
+        required: false
+        default: ""
+        type: string
+      max_districts:
+        description: "Limit to first N districts when district_ids is empty"
+        required: false
+        default: ""
+        type: string
+      start_date:
+        description: "Optional YYYY-MM-DD start date"
+        required: false
+        default: ""
+        type: string
+      end_date:
+        description: "Optional YYYY-MM-DD end date"
+        required: false
+        default: ""
+        type: string
+      request_delay_seconds:
+        description: "Override delay between district API requests"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: etl-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   etl:
@@ -54,8 +88,8 @@ jobs:
         run: poetry run python scripts/seed_dim_date.py
 
       - name: Run ETL (scheduled — daily)
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && contains(inputs.run_type, 'daily'))
-        run: poetry run vwdp-etl --run-type ${{ github.event.inputs.run_type || 'incremental-daily' }}
+        if: github.event_name == 'schedule'
+        run: poetry run vwdp-etl --run-type incremental-daily
 
       - name: Run ETL (scheduled — hourly)
         if: github.event_name == 'schedule'
@@ -65,9 +99,47 @@ jobs:
         if: github.event_name == 'schedule'
         run: poetry run vwdp-etl --run-type incremental-aqi-hourly
 
-      - name: Run ETL (manual — hourly)
-        if: github.event_name == 'workflow_dispatch' && contains(inputs.run_type, 'hourly')
-        run: poetry run vwdp-etl --run-type ${{ inputs.run_type }}
+      - name: Run ETL (manual/demo)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RUN_TYPE: ${{ inputs.run_type }}
+          DEMO_MODE: ${{ inputs.demo_mode }}
+          DISTRICT_IDS: ${{ inputs.district_ids }}
+          MAX_DISTRICTS: ${{ inputs.max_districts }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          REQUEST_DELAY_SECONDS: ${{ inputs.request_delay_seconds }}
+        run: |
+          args=(--run-type "$RUN_TYPE")
+
+          if [ -n "$START_DATE" ]; then
+            args+=(--start-date "$START_DATE")
+          fi
+          if [ -n "$END_DATE" ]; then
+            args+=(--end-date "$END_DATE")
+          fi
+
+          if [ -n "$DISTRICT_IDS" ]; then
+            IFS=',' read -ra ids <<< "$DISTRICT_IDS"
+            for id in "${ids[@]}"; do
+              id="$(echo "$id" | xargs)"
+              if [ -n "$id" ]; then
+                args+=(--district-id "$id")
+              fi
+            done
+          elif [ -n "$MAX_DISTRICTS" ]; then
+            args+=(--max-districts "$MAX_DISTRICTS")
+          elif [ "$DEMO_MODE" = "true" ]; then
+            args+=(--max-districts 2)
+          fi
+
+          if [ -n "$REQUEST_DELAY_SECONDS" ]; then
+            args+=(--request-delay-seconds "$REQUEST_DELAY_SECONDS")
+          elif [ "$DEMO_MODE" = "true" ]; then
+            args+=(--request-delay-seconds 0)
+          fi
+
+          poetry run vwdp-etl "${args[@]}"
 
       - name: Notify Discord on failure
         if: failure() && env.DISCORD_NOTIFICATIONS_ENABLED == 'true'

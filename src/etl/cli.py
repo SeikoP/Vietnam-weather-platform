@@ -61,6 +61,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Limit ETL to one district id. Repeat for multiple districts.",
     )
+    parser.add_argument(
+        "--max-districts",
+        type=int,
+        default=None,
+        help="Limit ETL to the first N districts after district filters. Useful for demos.",
+    )
+    parser.add_argument(
+        "--request-delay-seconds",
+        type=float,
+        default=None,
+        help="Override seconds to wait between district API requests.",
+    )
     return parser.parse_args()
 
 
@@ -79,9 +91,11 @@ def main() -> int:
             else:
                 start_date, end_date = resolve_date_range(args.run_type)
 
-            pipeline, etl_run_id = _create_pipeline(session, args.run_type)
+            pipeline, etl_run_id = _create_pipeline(
+                session, args.run_type, args.request_delay_seconds
+            )
             session.commit()
-            districts = _get_districts(session, args.district_id)
+            districts = _get_districts(session, args.district_id, args.max_districts)
             etl_run_service = EtlRunService(session)
 
             try:
@@ -125,23 +139,30 @@ def main() -> int:
         return 1
 
 
-def _get_districts(session: Session, district_ids: list[int] | None = None) -> list:
+def _get_districts(
+    session: Session, district_ids: list[int] | None = None, max_districts: int | None = None
+) -> list:
     from src.repositories.district_repository import DistrictRepository
 
     districts = DistrictRepository(session).list_all()
-    if not district_ids:
-        return districts
+    if district_ids:
+        requested_ids = set(district_ids)
+        districts = [district for district in districts if district.district_id in requested_ids]
+        found_ids = {district.district_id for district in districts}
+        missing_ids = sorted(requested_ids - found_ids)
+        if missing_ids:
+            raise ValueError(f"Unknown district id(s): {missing_ids}")
 
-    requested_ids = set(district_ids)
-    selected = [district for district in districts if district.district_id in requested_ids]
-    found_ids = {district.district_id for district in selected}
-    missing_ids = sorted(requested_ids - found_ids)
-    if missing_ids:
-        raise ValueError(f"Unknown district id(s): {missing_ids}")
-    return selected
+    if max_districts is not None:
+        if max_districts < 1:
+            raise ValueError("--max-districts must be greater than 0")
+        districts = districts[:max_districts]
+    return districts
 
 
-def _create_pipeline(session: Session, run_type: str) -> tuple[WeatherPipeline, int]:
+def _create_pipeline(
+    session: Session, run_type: str, request_delay_seconds: float | None = None
+) -> tuple[WeatherPipeline, int]:
     settings = get_settings()
     client = OpenMeteoClient(
         archive_url=settings.open_meteo_archive_url,
@@ -157,12 +178,16 @@ def _create_pipeline(session: Session, run_type: str) -> tuple[WeatherPipeline, 
         transformer=WeatherTransformer(),
         validator=WeatherValidator(),
         etl_run_service=etl_run_service,
-        district_request_delay_seconds=_request_delay_seconds(run_type),
+        district_request_delay_seconds=_request_delay_seconds(run_type, request_delay_seconds),
     )
     return pipeline, etl_run_id
 
 
-def _request_delay_seconds(run_type: str) -> float:
+def _request_delay_seconds(run_type: str, override: float | None = None) -> float:
+    if override is not None:
+        if override < 0:
+            raise ValueError("--request-delay-seconds must be 0 or greater")
+        return override
     if run_type.startswith("historical"):
         return HISTORICAL_REQUEST_DELAY_SECONDS
     return STANDARD_REQUEST_DELAY_SECONDS
