@@ -37,6 +37,9 @@ Demo tiết kiệm quota:
 poetry run vwdp-etl --run-type incremental-daily --district-id 1 --district-id 2 --request-delay-seconds 0
 ```
 
+Trên GitHub Actions, dùng input `quick_preset` để chọn nhanh demo nhỏ hoặc chạy thật mà
+không cần nhớ toàn bộ `run_type`.
+
 Historical demo ngắn:
 
 ```powershell
