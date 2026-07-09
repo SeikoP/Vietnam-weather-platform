@@ -165,6 +165,52 @@ class WeatherPipeline:
         self._finish_log(etl_run_id, event_name, total_rows, total_skipped, total_rejected)
         return total_rows
 
+    def _run_batch_district_pipeline(
+        self,
+        districts: Iterable[DimDistrict],
+        fetch_payloads: Callable[[list[DimDistrict]], dict[int, dict[str, Any]]],
+        fetch_payload: Callable[[DimDistrict], dict[str, Any]],
+        transform_payload: Callable[[DimDistrict, dict[str, Any]], list[Any]],
+        validate_record: Callable[[Any], list[Any]],
+        load_records: Callable[[list[Any], int | None], int],
+        event_name: str,
+        etl_run_id: int | None,
+    ) -> int:
+        district_list = list(districts)
+        if not district_list:
+            self._finish_log(etl_run_id, event_name, 0, 0, 0)
+            return 0
+
+        try:
+            payloads = fetch_payloads(district_list)
+        except Exception as exc:
+            LOGGER.warning("district_batch_fetch_failed", event_name=event_name, error=str(exc))
+            return self._run_district_pipeline(
+                districts=district_list,
+                fetch_payload=fetch_payload,
+                transform_payload=transform_payload,
+                validate_record=validate_record,
+                load_records=load_records,
+                event_name=event_name,
+                etl_run_id=etl_run_id,
+            )
+
+        total_rows = 0
+        total_skipped = 0
+        total_rejected = 0
+        for district in district_list:
+            payload = payloads.get(district.district_id, {})
+            valid, skipped, rejected = self._collect_valid_records(
+                district, payload, transform_payload, validate_record, etl_run_id
+            )
+            total_rows += load_records(valid, etl_run_id)
+            total_skipped += skipped
+            total_rejected += rejected
+            self._session.commit()
+
+        self._finish_log(etl_run_id, event_name, total_rows, total_skipped, total_rejected)
+        return total_rows
+
     def _transform_daily(self, district: DimDistrict, payload: dict[str, Any]):
         return self._transformer.daily_from_open_meteo(
             district.district_id, district.latitude, district.longitude, payload
@@ -186,8 +232,16 @@ class WeatherPipeline:
 
     def run_historical_daily(self, districts, start_date, end_date, etl_run_id=None):
         loader = WeatherWarehouseLoader(self._session)
-        return self._run_district_pipeline(
+        return self._run_batch_district_pipeline(
             districts=districts,
+            fetch_payloads=lambda district_list: self._client.fetch_historical_daily_batch(
+                [
+                    (district.district_id, district.latitude, district.longitude)
+                    for district in district_list
+                ],
+                start_date,
+                end_date,
+            ),
             fetch_payload=lambda district: self._client.fetch_historical_daily(
                 district.latitude, district.longitude, start_date, end_date
             ),
@@ -200,8 +254,16 @@ class WeatherPipeline:
 
     def run_historical_hourly(self, districts, start_date, end_date, etl_run_id=None):
         loader = WeatherWarehouseLoader(self._session)
-        return self._run_district_pipeline(
+        return self._run_batch_district_pipeline(
             districts=districts,
+            fetch_payloads=lambda district_list: self._client.fetch_historical_hourly_batch(
+                [
+                    (district.district_id, district.latitude, district.longitude)
+                    for district in district_list
+                ],
+                start_date,
+                end_date,
+            ),
             fetch_payload=lambda district: self._client.fetch_historical_hourly(
                 district.latitude, district.longitude, start_date, end_date
             ),
@@ -242,8 +304,16 @@ class WeatherPipeline:
 
     def run_historical_aqi_hourly(self, districts, start_date, end_date, etl_run_id=None):
         loader = WeatherWarehouseLoader(self._session)
-        return self._run_district_pipeline(
+        return self._run_batch_district_pipeline(
             districts=districts,
+            fetch_payloads=lambda district_list: self._client.fetch_historical_aqi_hourly_batch(
+                [
+                    (district.district_id, district.latitude, district.longitude)
+                    for district in district_list
+                ],
+                start_date,
+                end_date,
+            ),
             fetch_payload=lambda district: self._client.fetch_historical_aqi_hourly(
                 district.latitude, district.longitude, start_date, end_date
             ),

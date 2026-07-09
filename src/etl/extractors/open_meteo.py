@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import date
 from time import monotonic, sleep
 from typing import Any
@@ -8,6 +9,7 @@ from src.etl.exceptions import ExternalApiError
 from src.monitoring.logging import get_logger
 
 LOGGER = get_logger(__name__)
+DistrictCoordinate = tuple[int, float, float]
 
 
 class OpenMeteoClient:
@@ -87,6 +89,21 @@ class OpenMeteoClient:
         }
         return self._get_json(self._archive_url, params)
 
+    def fetch_historical_daily_batch(
+        self,
+        districts: Sequence[DistrictCoordinate],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        return self._fetch_historical_batch(
+            districts=districts,
+            url=self._archive_url,
+            variables_key="daily",
+            variables=self.DAILY_VARIABLES,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
     def fetch_historical_hourly(
         self,
         latitude: float,
@@ -103,6 +120,21 @@ class OpenMeteoClient:
             "timezone": "Asia/Bangkok",
         }
         return self._get_json(self._archive_url, params)
+
+    def fetch_historical_hourly_batch(
+        self,
+        districts: Sequence[DistrictCoordinate],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        return self._fetch_historical_batch(
+            districts=districts,
+            url=self._archive_url,
+            variables_key="hourly",
+            variables=self.HOURLY_VARIABLES,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     def fetch_forecast_daily(
         self,
@@ -151,6 +183,21 @@ class OpenMeteoClient:
         }
         return self._get_json(self._air_quality_url, params)
 
+    def fetch_historical_aqi_hourly_batch(
+        self,
+        districts: Sequence[DistrictCoordinate],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        return self._fetch_historical_batch(
+            districts=districts,
+            url=self._air_quality_url,
+            variables_key="hourly",
+            variables=self.AQI_HOURLY_VARIABLES,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
     def fetch_forecast_aqi_hourly(
         self,
         latitude: float,
@@ -182,6 +229,40 @@ class OpenMeteoClient:
                 if attempt < self._max_retries:
                     sleep(_retry_delay_seconds(exc, attempt))
         raise ExternalApiError(f"Open-Meteo request failed after retries: {last_error}")
+
+    def _fetch_historical_batch(
+        self,
+        districts: Sequence[DistrictCoordinate],
+        url: str,
+        variables_key: str,
+        variables: Sequence[str],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        if not districts:
+            return {}
+
+        params = {
+            "latitude": ",".join(str(latitude) for _, latitude, _ in districts),
+            "longitude": ",".join(str(longitude) for _, _, longitude in districts),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            variables_key: ",".join(variables),
+            "timezone": "Asia/Bangkok",
+        }
+        payload = self._get_json(url, params)
+        responses = payload if isinstance(payload, list) else [payload]
+        if len(responses) != len(districts):
+            raise ExternalApiError(
+                f"Open-Meteo batch returned {len(responses)} payloads for {len(districts)} "
+                "districts"
+            )
+        return {
+            district_id: response
+            for (district_id, _latitude, _longitude), response in zip(
+                districts, responses, strict=True
+            )
+        }
 
 
 def _retry_delay_seconds(exc: requests.RequestException, attempt: int) -> int:
