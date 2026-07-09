@@ -6,14 +6,14 @@ from src.etl.cli import _request_delay_seconds, resolve_date_range
 def test_incremental_date_range_loads_recent_rolling_window() -> None:
     start_date, end_date = resolve_date_range("incremental-daily", today=date(2026, 7, 7))
 
-    assert start_date == date(2026, 7, 4)
+    assert start_date == date(2026, 7, 6)
     assert end_date == date(2026, 7, 6)
 
 
 def test_incremental_aqi_date_range_uses_same_rolling_window() -> None:
     start_date, end_date = resolve_date_range("incremental-aqi-hourly", today=date(2026, 7, 7))
 
-    assert start_date == date(2026, 7, 4)
+    assert start_date == date(2026, 7, 6)
     assert end_date == date(2026, 7, 6)
 
 

@@ -17,7 +17,7 @@ from src.etl.validators.weather import WeatherValidator
 from src.monitoring.logging import configure_logging, get_logger
 
 HISTORICAL_START_DATE = date(2023, 6, 1)
-INCREMENTAL_LOOKBACK_DAYS = 3
+INCREMENTAL_LOOKBACK_DAYS = 1
 HISTORICAL_REQUEST_DELAY_SECONDS = 10.0
 STANDARD_REQUEST_DELAY_SECONDS = 1.5
 VIETNAM_TZ = ZoneInfo("Asia/Bangkok")

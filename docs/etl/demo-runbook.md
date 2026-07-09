@@ -15,7 +15,20 @@ poetry run vwdp-etl --run-type incremental-daily --district-id 1 --district-id 2
 
 ## GitHub Actions
 
-| Input | Giá trị demo |
+Chọn workflow `Daily ETL`, bấm `Run workflow`, rồi chọn một preset:
+
+| Nhu cầu | `quick_preset` |
+| --- | --- |
+| Demo daily nhỏ | `demo-daily-2-districts` |
+| Demo hourly nhỏ | `demo-hourly-2-districts` |
+| Demo AQI nhỏ | `demo-aqi-2-districts` |
+
+Với preset demo, các ô còn lại có thể để mặc định. Workflow sẽ tự giới hạn 2 quận đầu tiên
+và đặt `request_delay_seconds=0`.
+
+Nếu muốn tự chọn quận cụ thể, chọn `quick_preset=custom`:
+
+| Input | Giá trị ví dụ |
 | --- | --- |
 | `run_type` | `incremental-daily` |
 | `demo_mode` | `true` |

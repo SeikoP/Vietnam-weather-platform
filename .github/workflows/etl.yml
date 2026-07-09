@@ -5,8 +5,21 @@ on:
     - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
+      quick_preset:
+        description: "Chọn nhanh chế độ chạy ETL; chọn custom để tự nhập run_type và giới hạn bên dưới"
+        required: false
+        default: "Demo daily - 2 quận"
+        type: choice
+        options:
+          - "Demo daily - 2 quận"
+          - "Demo hourly - 2 quận"
+          - "Demo AQI hourly - 2 quận"
+          - "Chạy thật daily - toàn bộ quận"
+          - "Chạy thật hourly - toàn bộ quận"
+          - "Chạy thật AQI hourly - toàn bộ quận"
+          - custom
       run_type:
-        description: "ETL run type"
+        description: "Tùy chỉnh: loại ETL cần chạy khi quick_preset=custom; mặc định incremental-daily cho demo ngắn an toàn"
         required: false
         default: "incremental-daily"
         type: choice
@@ -21,32 +34,32 @@ on:
           - forecast-hourly
           - forecast-aqi-hourly
       demo_mode:
-        description: "Run a short demo-safe ETL"
+        description: "Tùy chỉnh: bật demo nhỏ; tự giới hạn 2 quận và delay 0 nếu không nhập giới hạn khác"
         required: false
         default: false
         type: boolean
       district_ids:
-        description: "Comma-separated district ids for manual/demo runs"
+        description: "Tùy chỉnh: ID quận/huyện cho manual/demo, cách nhau bằng dấu phẩy. Ví dụ: 1,2"
         required: false
         default: ""
         type: string
       max_districts:
-        description: "Limit to first N districts when district_ids is empty"
+        description: "Tùy chỉnh: giới hạn N quận đầu tiên khi district_ids để trống. Ví dụ: 2"
         required: false
         default: ""
         type: string
       start_date:
-        description: "Optional YYYY-MM-DD start date"
+        description: "Tùy chỉnh: ngày bắt đầu YYYY-MM-DD; để trống sẽ dùng mặc định theo run_type"
         required: false
         default: ""
         type: string
       end_date:
-        description: "Optional YYYY-MM-DD end date"
+        description: "Tùy chỉnh: ngày kết thúc YYYY-MM-DD; để trống sẽ dùng mặc định theo run_type"
         required: false
         default: ""
         type: string
       request_delay_seconds:
-        description: "Override delay between district API requests"
+        description: "Tùy chỉnh: số giây nghỉ giữa request API mỗi quận/huyện. Demo có thể dùng 0"
         required: false
         default: ""
         type: string
@@ -60,10 +73,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DISCORD_NOTIFICATIONS_ENABLED: "false"
+      DISCORD_NOTIFICATIONS_ENABLED: ${{ vars.DISCORD_NOTIFICATIONS_ENABLED || 'true' }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Record workflow start time
+        run: echo "WORKFLOW_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:
@@ -87,21 +103,22 @@ jobs:
       - name: Seed date dimension
         run: poetry run python scripts/seed_dim_date.py
 
-      - name: Run ETL (scheduled — daily)
+      - name: Run ETL (scheduled - daily)
         if: github.event_name == 'schedule'
         run: poetry run vwdp-etl --run-type incremental-daily
 
-      - name: Run ETL (scheduled — hourly)
+      - name: Run ETL (scheduled - hourly)
         if: github.event_name == 'schedule'
         run: poetry run vwdp-etl --run-type incremental-hourly
 
-      - name: Run ETL (scheduled — AQI hourly)
+      - name: Run ETL (scheduled - AQI hourly)
         if: github.event_name == 'schedule'
         run: poetry run vwdp-etl --run-type incremental-aqi-hourly
 
       - name: Run ETL (manual/demo)
         if: github.event_name == 'workflow_dispatch'
         env:
+          QUICK_PRESET: ${{ inputs.quick_preset }}
           RUN_TYPE: ${{ inputs.run_type }}
           DEMO_MODE: ${{ inputs.demo_mode }}
           DISTRICT_IDS: ${{ inputs.district_ids }}
@@ -110,6 +127,51 @@ jobs:
           END_DATE: ${{ inputs.end_date }}
           REQUEST_DELAY_SECONDS: ${{ inputs.request_delay_seconds }}
         run: |
+          case "$QUICK_PRESET" in
+            "Demo daily - 2 quận"|demo-daily-2-districts)
+              RUN_TYPE="incremental-daily"
+              DEMO_MODE="true"
+              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
+              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
+              ;;
+            "Demo hourly - 2 quận"|demo-hourly-2-districts)
+              RUN_TYPE="incremental-hourly"
+              DEMO_MODE="true"
+              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
+              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
+              ;;
+            "Demo AQI hourly - 2 quận"|demo-aqi-2-districts)
+              RUN_TYPE="incremental-aqi-hourly"
+              DEMO_MODE="true"
+              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
+              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
+              ;;
+            "Chạy thật daily - toàn bộ quận"|full-incremental-daily)
+              RUN_TYPE="incremental-daily"
+              DEMO_MODE="false"
+              DISTRICT_IDS=""
+              MAX_DISTRICTS=""
+              ;;
+            "Chạy thật hourly - toàn bộ quận"|full-incremental-hourly)
+              RUN_TYPE="incremental-hourly"
+              DEMO_MODE="false"
+              DISTRICT_IDS=""
+              MAX_DISTRICTS=""
+              ;;
+            "Chạy thật AQI hourly - toàn bộ quận"|full-incremental-aqi-hourly)
+              RUN_TYPE="incremental-aqi-hourly"
+              DEMO_MODE="false"
+              DISTRICT_IDS=""
+              MAX_DISTRICTS=""
+              ;;
+            custom|"")
+              ;;
+            *)
+              echo "Unknown quick_preset: $QUICK_PRESET" >&2
+              exit 1
+              ;;
+          esac
+
           args=(--run-type "$RUN_TYPE")
 
           if [ -n "$START_DATE" ]; then
@@ -141,16 +203,9 @@ jobs:
 
           poetry run vwdp-etl "${args[@]}"
 
-      - name: Notify Discord on failure
-        if: failure() && env.DISCORD_NOTIFICATIONS_ENABLED == 'true'
-        run: |
-          python - <<'PY'
-          import os, requests
-          webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-          if webhook:
-              requests.post(
-                  webhook,
-                  json={"content": "VWDP Daily ETL failed. Check GitHub Actions logs."},
-                  timeout=10,
-              ).raise_for_status()
-          PY
+      - name: Build ETL summary and notify Discord
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: poetry run python scripts/github_actions_etl_report.py --job-status "$JOB_STATUS" --notify-discord
+        continue-on-error: true
