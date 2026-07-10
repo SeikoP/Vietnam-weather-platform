@@ -13,6 +13,8 @@ from src.models.schemas.weather import (
 
 router = APIRouter(tags=["weather"])
 DB_SESSION = Depends(get_db_session)
+DEFAULT_LIMIT = Query(default=100, ge=1, le=1000)
+DEFAULT_OFFSET = Query(default=0, ge=0)
 
 
 @router.get("/daily", response_model=list[DailyWeatherResponse])
@@ -33,11 +35,13 @@ def hourly_weather(
     district_id: int | None = Query(default=None),
     start_date: date | None = None,
     end_date: date | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = DEFAULT_OFFSET,
     session: Session = DB_SESSION,
 ) -> list[HourlyWeatherResponse]:
     from src.repositories.weather_repository import WeatherRepository
 
-    rows = WeatherRepository(session).list_hourly(district_id, start_date, end_date)
+    rows = WeatherRepository(session).list_hourly(district_id, start_date, end_date, limit, offset)
     return [HourlyWeatherResponse.model_validate(r) for r in rows]
 
 
@@ -46,11 +50,15 @@ def aqi_hourly_weather(
     district_id: int | None = Query(default=None),
     start_date: date | None = None,
     end_date: date | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = DEFAULT_OFFSET,
     session: Session = DB_SESSION,
 ) -> list[AqiHourlyResponse]:
     from src.repositories.weather_repository import WeatherRepository
 
-    rows = WeatherRepository(session).list_aqi_hourly(district_id, start_date, end_date)
+    rows = WeatherRepository(session).list_aqi_hourly(
+        district_id, start_date, end_date, limit, offset
+    )
     return [AqiHourlyResponse.model_validate(r) for r in rows]
 
 

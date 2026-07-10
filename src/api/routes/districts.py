@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db_session
@@ -15,6 +15,8 @@ from src.models.schemas.weather import (
 
 router = APIRouter(prefix="/districts", tags=["districts"])
 DB_SESSION = Depends(get_db_session)
+DEFAULT_LIMIT = Query(default=100, ge=1, le=1000)
+DEFAULT_OFFSET = Query(default=0, ge=0)
 
 
 @router.get("", response_model=list[DistrictResponse])
@@ -55,6 +57,8 @@ def district_hourly_weather(
     district_id: int,
     start_date: date | None = None,
     end_date: date | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = DEFAULT_OFFSET,
     session: Session = DB_SESSION,
 ):
     from src.repositories.district_repository import DistrictRepository
@@ -62,7 +66,7 @@ def district_hourly_weather(
 
     if not DistrictRepository(session).get_by_id(district_id):
         raise HTTPException(status_code=404, detail=f"District {district_id} not found")
-    rows = WeatherRepository(session).list_hourly(district_id, start_date, end_date)
+    rows = WeatherRepository(session).list_hourly(district_id, start_date, end_date, limit, offset)
     return [HourlyWeatherResponse.model_validate(r) for r in rows]
 
 
@@ -71,6 +75,8 @@ def district_aqi_hourly(
     district_id: int,
     start_date: date | None = None,
     end_date: date | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = DEFAULT_OFFSET,
     session: Session = DB_SESSION,
 ):
     from src.repositories.district_repository import DistrictRepository
@@ -78,5 +84,7 @@ def district_aqi_hourly(
 
     if not DistrictRepository(session).get_by_id(district_id):
         raise HTTPException(status_code=404, detail=f"District {district_id} not found")
-    rows = WeatherRepository(session).list_aqi_hourly(district_id, start_date, end_date)
+    rows = WeatherRepository(session).list_aqi_hourly(
+        district_id, start_date, end_date, limit, offset
+    )
     return [AqiHourlyResponse.model_validate(r) for r in rows]

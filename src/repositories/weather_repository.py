@@ -29,7 +29,12 @@ class WeatherRepository:
         )
 
     def list_hourly(
-        self, district_id: int | None, start_date: date | None, end_date: date | None
+        self,
+        district_id: int | None,
+        start_date: date | None,
+        end_date: date | None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[FactWeatherHourly]:
         stmt = select(FactWeatherHourly).join(FactWeatherHourly.hour).options(
             joinedload(FactWeatherHourly.hour)
@@ -43,11 +48,18 @@ class WeatherRepository:
         return list(
             self._session.scalars(
                 stmt.order_by(DimHour.observed_at, FactWeatherHourly.district_id)
+                .limit(limit)
+                .offset(offset)
             )
         )
 
     def list_aqi_hourly(
-        self, district_id: int | None, start_date: date | None, end_date: date | None
+        self,
+        district_id: int | None,
+        start_date: date | None,
+        end_date: date | None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[FactAqiHourly]:
         stmt = select(FactAqiHourly).join(FactAqiHourly.hour).options(
             joinedload(FactAqiHourly.hour)
@@ -61,6 +73,8 @@ class WeatherRepository:
         return list(
             self._session.scalars(
                 stmt.order_by(DimHour.observed_at, FactAqiHourly.district_id)
+                .limit(limit)
+                .offset(offset)
             )
         )
 

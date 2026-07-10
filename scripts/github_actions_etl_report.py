@@ -7,11 +7,19 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import text
 
 from src.database.session import SessionLocal
+
+VIETNAM_TZ = ZoneInfo("Asia/Bangkok")
+SCHEDULED_RUN_TYPES = (
+    "incremental-daily",
+    "incremental-hourly",
+    "incremental-aqi-hourly",
+)
 
 
 def main() -> int:
@@ -42,12 +50,14 @@ def _build_summary(job_status: str) -> dict[str, Any]:
     except Exception as exc:
         error = str(exc)
 
+    manual_catchup = _manual_catchup(job_status, started_at, rows, error)
     markdown = _render_markdown(
         job_status=job_status,
         started_at=started_at,
         rows=rows,
         warehouse=warehouse,
         error=error,
+        manual_catchup=manual_catchup,
     )
     return {
         "job_status": job_status,
@@ -55,6 +65,7 @@ def _build_summary(job_status: str) -> dict[str, Any]:
         "rows": rows,
         "warehouse": warehouse,
         "error": error,
+        "manual_catchup": manual_catchup,
         "markdown": markdown,
     }
 
@@ -126,6 +137,7 @@ def _render_markdown(
     rows: list[dict[str, Any]],
     warehouse: dict[str, dict[str, Any]],
     error: str | None,
+    manual_catchup: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         "## ETL run summary",
@@ -147,6 +159,8 @@ def _render_markdown(
                 "",
             ]
         )
+        if manual_catchup:
+            lines.extend(_render_manual_catchup_markdown(manual_catchup))
         return "\n".join(lines)
 
     lines.extend(
@@ -187,6 +201,10 @@ def _render_markdown(
             names = ", ".join(f"`{row['run_type']}`" for row in failed_rows)
             lines.append(f"- Non-completed ETL runs: {names}")
 
+    if manual_catchup:
+        lines.extend([""])
+        lines.extend(_render_manual_catchup_markdown(manual_catchup))
+
     lines.extend(
         [
             "",
@@ -201,6 +219,61 @@ def _render_markdown(
 
     lines.append("")
     return "\n".join(lines)
+
+
+def _manual_catchup(
+    job_status: str,
+    started_at: datetime,
+    rows: list[dict[str, Any]],
+    error: str | None,
+) -> dict[str, Any] | None:
+    event_name = os.getenv("GITHUB_EVENT_NAME", "")
+    if event_name != "schedule":
+        return None
+
+    failed_rows = [row for row in rows if row["status"] != "completed"]
+    needs_catchup = job_status != "success" or bool(error) or bool(failed_rows) or not rows
+    if not needs_catchup:
+        return None
+
+    target_date = _catchup_date(started_at)
+    return {
+        "date": target_date,
+        "run_types": SCHEDULED_RUN_TYPES,
+        "commands": _manual_catchup_commands(target_date),
+    }
+
+
+def _catchup_date(started_at: datetime) -> str:
+    local_started_at = started_at.astimezone(VIETNAM_TZ)
+    return (local_started_at.date() - timedelta(days=1)).isoformat()
+
+
+def _manual_catchup_commands(target_date: str) -> list[str]:
+    return [
+        (
+            ".\\scripts\\run_manual_catchup.ps1 "
+            f"-StartDate {target_date} -EndDate {target_date}"
+        )
+    ]
+
+
+def _render_manual_catchup_markdown(manual_catchup: dict[str, Any]) -> list[str]:
+    lines = [
+        "### Manual catch-up required",
+        "",
+        (
+            "Scheduled ETL did not complete. Run the following command from a local "
+            "PowerShell terminal at the repository root to fill the missing date."
+        ),
+        "",
+        f"- Missing date: `{manual_catchup['date']}`",
+        "",
+        "```powershell",
+    ]
+    lines.extend(manual_catchup["commands"])
+    lines.extend(["```", ""])
+    return lines
 
 
 def _display_dt(value: Any) -> str:
@@ -243,6 +316,14 @@ def _notify_discord(summary: dict[str, Any], job_status: str) -> None:
     )
     if summary["error"]:
         content += f"\nVerification error: `{summary['error']}`"
+    manual_catchup = summary.get("manual_catchup")
+    if manual_catchup:
+        commands = "\n".join(manual_catchup["commands"])
+        content += (
+            f"\n\nManual catch-up required for `{manual_catchup['date']}`. "
+            "Run locally from repo root:\n"
+            f"```powershell\n{commands}\n```"
+        )
 
     response = requests.post(webhook, json={"content": content}, timeout=10)
     response.raise_for_status()

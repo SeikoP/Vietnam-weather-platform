@@ -45,8 +45,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("alter table analyst.fact_weather_daily add column created_at timestamptz")
-    op.execute("alter table analyst.fact_weather_daily add column updated_at timestamptz")
+    op.execute(
+        "alter table analyst.fact_weather_daily "
+        "add column created_at timestamptz not null default now()"
+    )
+    op.execute(
+        "alter table analyst.fact_weather_daily "
+        "add column updated_at timestamptz not null default now()"
+    )
 
     _downgrade_hourly_table("fact_aqi_hourly")
     _downgrade_hourly_table("fact_weather_hourly")

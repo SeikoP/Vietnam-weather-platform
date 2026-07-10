@@ -89,3 +89,33 @@ def test_historical_daily_falls_back_to_per_district_fetch_when_batch_fails() ->
     assert rows == 2
     client.fetch_historical_daily_batch.assert_called_once()
     assert client.fetch_historical_daily.call_count == 2
+
+
+def test_historical_daily_falls_back_when_batch_omits_district_payload() -> None:
+    districts = [
+        District(1, "Ba Dinh", 21.0333, 105.8333),
+        District(2, "Hoan Kiem", 21.0285, 105.8542),
+    ]
+    client = MagicMock()
+    client.fetch_historical_daily_batch.return_value = {
+        1: {"daily": {"time": ["2026-07-06"], "temperature_2m_mean": [28.0]}}
+    }
+    client.fetch_historical_daily.side_effect = [
+        {"daily": {"time": ["2026-07-06"], "temperature_2m_mean": [28.0]}},
+        {"daily": {"time": ["2026-07-06"], "temperature_2m_mean": [29.0]}},
+    ]
+    pipeline = _make_pipeline(client)
+
+    with patch("src.etl.orchestration.weather_pipeline.WeatherWarehouseLoader") as loader_cls:
+        loader = loader_cls.return_value
+        loader.upsert_daily.side_effect = lambda records, etl_run_id: len(records)
+
+        rows = pipeline.run_historical_daily(
+            districts,
+            start_date=date(2026, 7, 6),
+            end_date=date(2026, 7, 6),
+        )
+
+    assert rows == 2
+    client.fetch_historical_daily_batch.assert_called_once()
+    assert client.fetch_historical_daily.call_count == 2
