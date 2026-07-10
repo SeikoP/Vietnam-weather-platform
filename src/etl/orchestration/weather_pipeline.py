@@ -183,6 +183,13 @@ class WeatherPipeline:
 
         try:
             payloads = fetch_payloads(district_list)
+            missing_ids = [
+                district.district_id
+                for district in district_list
+                if district.district_id not in payloads
+            ]
+            if missing_ids:
+                raise ValueError(f"Batch response missing district payload(s): {missing_ids}")
         except Exception as exc:
             LOGGER.warning("district_batch_fetch_failed", event_name=event_name, error=str(exc))
             return self._run_district_pipeline(

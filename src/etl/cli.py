@@ -49,6 +49,20 @@ def resolve_date_range(run_type: str, today: date | None = None) -> tuple[date, 
     return end_date, end_date
 
 
+def resolve_requested_date_range(
+    run_type: str,
+    start_date: date | None,
+    end_date: date | None,
+) -> tuple[date, date]:
+    if (start_date is None) != (end_date is None):
+        raise ValueError("--start-date and --end-date must be provided together")
+    if start_date is not None and end_date is not None:
+        if start_date > end_date:
+            raise ValueError("--start-date must be before or equal to --end-date")
+        return start_date, end_date
+    return resolve_date_range(run_type)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Hanoi weather/AQI ETL")
     parser.add_argument("--run-type", choices=sorted(RUN_TYPES), default="incremental-daily")
@@ -86,10 +100,11 @@ def main() -> int:
 
     try:
         with SessionLocal() as session:
-            if args.start_date and args.end_date:
-                start_date, end_date = args.start_date, args.end_date
-            else:
-                start_date, end_date = resolve_date_range(args.run_type)
+            start_date, end_date = resolve_requested_date_range(
+                args.run_type,
+                args.start_date,
+                args.end_date,
+            )
 
             pipeline, etl_run_id = _create_pipeline(
                 session, args.run_type, args.request_delay_seconds

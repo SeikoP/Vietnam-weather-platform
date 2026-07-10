@@ -1,6 +1,6 @@
 from datetime import date
 
-from src.etl.cli import _request_delay_seconds, resolve_date_range
+from src.etl.cli import _request_delay_seconds, resolve_date_range, resolve_requested_date_range
 
 
 def test_incremental_date_range_loads_recent_rolling_window() -> None:
@@ -41,3 +41,27 @@ def test_request_delay_override_rejects_negative_values() -> None:
         assert "--request-delay-seconds" in str(exc)
     else:
         raise AssertionError("Expected negative request delay to fail")
+
+
+def test_resolve_requested_date_range_rejects_partial_dates() -> None:
+    try:
+        resolve_requested_date_range(
+            "incremental-daily",
+            start_date=date(2026, 7, 9),
+            end_date=None,
+        )
+    except ValueError as exc:
+        assert "--start-date and --end-date must be provided together" in str(exc)
+    else:
+        raise AssertionError("Expected partial date range to fail")
+
+
+def test_resolve_requested_date_range_uses_explicit_dates() -> None:
+    start_date, end_date = resolve_requested_date_range(
+        "incremental-daily",
+        start_date=date(2026, 7, 8),
+        end_date=date(2026, 7, 9),
+    )
+
+    assert start_date == date(2026, 7, 8)
+    assert end_date == date(2026, 7, 9)
