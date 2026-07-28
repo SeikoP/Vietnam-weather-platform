@@ -2,24 +2,26 @@
 
 ## Goal
 
-Run Metabase inside this project, connect it to the local `vwdp` PostgreSQL warehouse
-with a read-only account, and share the Metabase web application with two trusted
-members through an ngrok HTTPS endpoint protected by OAuth.
+Run Metabase inside this project and connect it to the local `vwdp` PostgreSQL warehouse
+with a read-only account. Trusted members build dashboards through a tailnet-only
+Tailscale endpoint. An ngrok HTTPS endpoint exposes only explicitly published,
+view-only dashboards to anyone who has a public dashboard link.
 
 The cloud-to-local synchronization remains manually invoked. PostgreSQL itself is never
 published through ngrok.
 
 ## Selected Approach
 
-Use Docker Compose for Metabase and its private application database, and use the
-already-installed Windows ngrok CLI for the public tunnel.
+Use Docker Compose for Metabase, its private application database, and a restricted
+public reverse proxy. Use the installed Windows Tailscale CLI for collaboration and the
+installed Windows ngrok CLI for anonymous dashboard viewing.
 
 This is preferred over:
 
-1. Running ngrok as another Compose service. A container makes a dynamic, per-email
-   OAuth allowlist and local credential management more awkward.
-2. Using Metabase public links. Public links do not authenticate viewers and cannot
-   safely enforce hidden filter values.
+1. Sending collaborators through ngrok. Tailscale reduces the public attack surface and
+   gives members stable tailnet-only access to the complete application.
+2. Pointing ngrok directly at Metabase. A restricted reverse proxy prevents the public
+   endpoint from forwarding login, admin, query-builder, and private API routes.
 3. Exposing PostgreSQL directly. That expands the attack surface and bypasses Metabase
    permissions.
 
@@ -39,13 +41,25 @@ This is preferred over:
 
 - Image: `metabase/metabase:v0.63.1`, the latest non-prerelease release verified from
   the official GitHub repository on 2026-07-28.
-- Publishes `localhost:3000`.
+- Publishes only `127.0.0.1:3000`.
 - Connects to `metabase-db:5432` through `MB_DB_*` environment variables.
-- Uses `MB_SITE_URL`, supplied as `http://localhost:3000` for local-only use or the
-  stable ngrok HTTPS URL when sharing.
-- Disables public sharing and anonymous usage tracking through environment settings.
+- Uses `MB_SITE_URL` set to the Tailscale Serve HTTPS URL used by collaborators.
+- Enables Metabase public sharing because anonymous ngrok dashboard links require it,
+  while anonymous usage tracking remains disabled.
 - Starts only after both PostgreSQL services are healthy.
 - Exposes a healthcheck against `/api/health`.
+
+### `metabase-public-gateway`
+
+- Image: `nginx:1.29-alpine`.
+- Publishes only `127.0.0.1:3001`.
+- Proxies to `metabase:3000`.
+- Allows the public-dashboard page, Metabase public dashboard/card API, and static asset
+  routes required to render that page.
+- Returns `404` for `/`, `/auth/*`, `/admin/*`, non-public API routes, query-builder
+  routes, and every other path.
+- Adds no authentication: knowledge of the unguessable Metabase public dashboard URL is
+  the access mechanism selected by the user.
 
 ### Warehouse role
 
@@ -90,28 +104,45 @@ Required runtime variables:
 No real values are written to `.env`, `.env.example`, Git, logs, or command output.
 `.env.example` receives placeholder names only.
 
-## ngrok Access
+## Tailscale Collaboration Access
 
-`scripts/start_metabase_tunnel.ps1` runs the installed ngrok CLI in the foreground.
+`scripts/start_metabase_tailnet.ps1` validates that Tailscale is authenticated and then
+runs:
+
+```powershell
+tailscale serve --bg --yes 3000
+```
+
+Tailscale Serve provides a stable tailnet-only HTTPS URL for the complete Metabase
+application. Each trusted member joins the tailnet and signs in with an individual
+Metabase account. The current machine has Tailscale 1.98.8 installed, but its current
+backend state is `NoState`; the user must complete `tailscale up` before this launcher
+can succeed.
+
+## ngrok Public Dashboard Access
+
+`scripts/start_public_dashboard_tunnel.ps1` runs the installed ngrok CLI in the
+foreground.
 It requires:
 
 - `NGROK_AUTHTOKEN`, unless the local ngrok config is already authenticated;
 - `NGROK_DOMAIN`, containing the account's assigned development domain;
-- `NGROK_OAUTH_ALLOW_EMAILS`, a comma-separated list of exact member emails;
-- optional `NGROK_OAUTH_PROVIDER`, defaulting to `google`.
+- `METABASE_PUBLIC_DASHBOARD_PATH`, exactly one Metabase path in the form
+  `/public/dashboard/{dashboard-uuid}`.
 
 The launcher:
 
-- confirms Metabase health before starting;
-- rejects an empty email allowlist;
-- invokes one `--oauth-allow-email` flag per normalized email;
-- forwards only `https://${NGROK_DOMAIN}` to `http://localhost:3000`;
+- confirms the restricted gateway is healthy;
+- rejects paths outside `/public/dashboard/`;
+- forwards `https://${NGROK_DOMAIN}` only to `http://localhost:3001`;
+- prints the complete share URL by combining the ngrok domain with the validated
+  dashboard path;
 - never starts a TCP tunnel and never exposes port `5433`;
 - stays in the foreground so closing it immediately removes public access.
 
-Each member passes ngrok OAuth and then signs into their own Metabase account. The admin
-creates/invites member accounts through the Metabase UI; no shared admin account is
-created by automation.
+Anonymous viewers do not receive Metabase accounts. Anyone who obtains the share URL can
+view that published dashboard, so the admin must remove its Metabase public link to
+revoke access.
 
 ## Data Flow
 
@@ -124,11 +155,10 @@ vwdp-postgres / analyst schema
         |
         | SELECT as metabase_reader (Docker network only)
         v
-Metabase :3000
+Metabase :3000 ---- Tailscale Serve HTTPS ---- Trusted collaborators
         |
-        | ngrok HTTPS + exact-email OAuth
         v
-Trusted members
+restricted gateway :3001 ---- ngrok HTTPS ---- Anonymous dashboard viewers
 ```
 
 Metabase application state follows a separate path:
@@ -142,11 +172,14 @@ Metabase -> metabase-db:5432 -> metabase_app_data volume
 The normal sequence is:
 
 1. Export the required local/Metabase/ngrok variables in PowerShell.
-2. Run `docker compose up -d postgres metabase-db metabase`.
+2. Run `docker compose up -d postgres metabase-db metabase metabase-public-gateway`.
 3. Run `.venv\Scripts\python.exe scripts\setup_metabase.py`.
 4. Run `.venv\Scripts\python.exe scripts\sync_cloud_to_local.py` whenever fresh cloud
    data is required.
-5. Run `scripts\start_metabase_tunnel.ps1` and leave that terminal open while sharing.
+5. After `tailscale up`, run `scripts\start_metabase_tailnet.ps1` for collaborators.
+6. Publish a selected dashboard in Metabase, export its path as
+   `METABASE_PUBLIC_DASHBOARD_PATH`, then run
+   `scripts\start_public_dashboard_tunnel.ps1`.
 
 The synchronization is not scheduled and ngrok is not installed as a Windows service.
 
@@ -159,7 +192,9 @@ The synchronization is not scheduled and ngrok is not installed as a Windows ser
 - A failed Metabase API request does not change warehouse facts.
 - A failed cloud sync does not stop Metabase; dashboards keep showing the last
   successfully synchronized local data.
-- Public sharing stays disabled even though the ngrok endpoint has OAuth.
+- Public sharing is intentionally enabled. The gateway prevents ngrok from forwarding
+  the full Metabase interface, but the dashboard remains accessible to anyone with its
+  public URL.
 - The existing Tiki container/database and the user's unrelated dirty files remain
   untouched.
 
@@ -172,7 +207,9 @@ Automated tests cover:
 - read-only role SQL and identifier safety;
 - first-run and rerun Metabase API behavior;
 - exact warehouse connection details;
-- ngrok launcher validation and repeated email flags.
+- Tailscale authentication-state and Serve command validation;
+- ngrok dashboard-path validation;
+- restricted gateway allow/deny behavior.
 
 Runtime verification covers:
 
@@ -181,10 +218,12 @@ Runtime verification covers:
 - `metabase_reader` can `SELECT` analyst tables but cannot `INSERT`;
 - Metabase `/api/health` returns healthy;
 - Metabase lists `VWDP Local Warehouse`;
-- ngrok endpoint rejects a non-allowlisted identity and accepts an allowlisted identity
-  when credentials are supplied;
+- Tailscale Serve exposes the full app only inside the tailnet;
+- the ngrok dashboard URL renders anonymously while `/`, `/auth/login`, `/admin`, and
+  private API endpoints return `404`;
 - the existing cloud sync command completes and local analyst row counts are reviewed.
 
 The real Supabase sync and public ngrok test can run only after the rotated cloud URL,
-ngrok token/domain, OAuth email allowlist, and Metabase credentials are available in the
-current environment.
+ngrok token/domain, selected public dashboard path, and Metabase credentials are
+available in the current environment. Tailscale collaboration also requires the local
+client to be authenticated.
