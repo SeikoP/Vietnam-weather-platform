@@ -5,3 +5,23 @@ services:
     ports:
       - "8000:8000"
     command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: vwdp-postgres
+    environment:
+      POSTGRES_DB: vwdp
+      POSTGRES_USER: vwdp
+      POSTGRES_PASSWORD: ${VWDP_POSTGRES_PASSWORD:?Set VWDP_POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - vwdp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vwdp -d vwdp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  vwdp_postgres_data:
