@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "84ad84d643f597695d5c8ddc98895ea52f0afdef",
-    "indexed_at": "2026-07-09T13:14:41Z",
+    "commit": "50ce1109aa33afbcc4998f09d8361ac0c1f199ed",
+    "indexed_at": "2026-07-28T16:33:38Z",
     "project": "vietnam-weather-platform",
-    "nodes": 620,
-    "edges": 2552,
-    "original_size": 2490368,
-    "compressed_size": 422587,
-    "compression_level": 9
+    "nodes": 713,
+    "edges": 2949,
+    "original_size": 3080192,
+    "compressed_size": 248794,
+    "compression_level": 3
 }

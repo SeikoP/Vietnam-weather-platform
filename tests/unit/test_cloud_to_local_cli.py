@@ -21,7 +21,7 @@ def test_load_database_urls_requires_both_values() -> None:
 def test_parse_args_uses_safe_defaults() -> None:
     args = parse_args([])
 
-    assert args.lookback_days == 3
+    assert args.lookback_days == 0
     assert args.batch_size == 1000
     assert args.full is False
 
@@ -87,7 +87,7 @@ def test_main_validates_migrates_syncs_and_disposes_engines(monkeypatch, capsys)
         def __init__(self, *, cloud_engine, local_engine, options) -> None:
             assert cloud_engine.name == "cloud"
             assert local_engine.name == "local"
-            assert options.lookback_days == 3
+            assert options.lookback_days == 0
 
         def run(self) -> list[SyncTableResult]:
             events.append("sync")

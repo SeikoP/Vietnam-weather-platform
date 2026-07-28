@@ -13,5 +13,7 @@ dist/
 build/
 *.egg-info/
 pw.txt
-pw.txt
 help
+/reports/
+.codex/
+node_modules/

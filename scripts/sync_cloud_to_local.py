@@ -36,7 +36,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Incrementally synchronize Supabase into local PostgreSQL."
     )
-    parser.add_argument("--lookback-days", type=non_negative_int, default=3)
+    parser.add_argument("--lookback-days", type=non_negative_int, default=0)
     parser.add_argument("--batch-size", type=positive_int, default=1000)
     parser.add_argument("--full", action="store_true")
     return parser.parse_args(argv)
