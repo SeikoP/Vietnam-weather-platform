@@ -16,6 +16,25 @@ docker compose ps postgres
 
 Giữ mật khẩu ngoài Git và không ghi giá trị thật vào `.env.example`.
 
+Nếu volume đã được tạo, đổi `VWDP_POSTGRES_PASSWORD` rồi restart container sẽ không
+đổi mật khẩu trong PostgreSQL. Hãy đổi tương tác để mật khẩu không xuất hiện trong
+command history:
+
+```powershell
+docker exec -it vwdp-postgres psql -U vwdp -d vwdp
+```
+
+Tại dấu nhắc `psql`, chạy:
+
+```text
+\password vwdp
+\q
+```
+
+Sau đó cập nhật `VWDP_POSTGRES_PASSWORD` và phần mật khẩu đã URL-encode trong
+`LOCAL_DATABASE_URL` ở phiên PowerShell dùng để vận hành. Hãy thực hiện bước này trước
+khi cho thành viên kết nối.
+
 ## 2. Chạy đồng bộ thủ công
 
 Tài khoản cloud nên là tài khoản chỉ có quyền đọc schema cần đồng bộ.
