@@ -1,7 +1,10 @@
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
-from sqlalchemy import Engine, text
+import httpx
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import make_url
 
 
@@ -87,3 +90,111 @@ def provision_warehouse_reader(engine: Engine, password: str) -> None:
                 "GRANT SELECT ON TABLES TO metabase_reader"
             )
         )
+
+
+class MetabaseClient:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        sleep_fn=time.sleep,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.client = client
+        self.sleep_fn = sleep_fn
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        response = self.client.request(method, f"{self.base_url}{path}", **kwargs)
+        if response.is_error:
+            raise RuntimeError(
+                f"Metabase request failed: {method} {path} returned {response.status_code}"
+            )
+        return response
+
+    @staticmethod
+    def _warehouse_payload(settings: MetabaseSettings) -> dict[str, object]:
+        return {
+            "engine": "postgres",
+            "name": "VWDP Local Warehouse",
+            "details": {
+                "host": "postgres",
+                "port": 5432,
+                "dbname": "vwdp",
+                "user": "metabase_reader",
+                "password": settings.warehouse_password,
+                "ssl": False,
+            },
+        }
+
+    def wait_until_healthy(self, timeout_seconds: int = 180) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                response = self.client.get(f"{self.base_url}/api/health")
+                if response.status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Metabase did not become healthy before timeout")
+            self.sleep_fn(1.0)
+
+    def ensure_setup(self, settings: MetabaseSettings) -> None:
+        properties = self._request("GET", "/api/session/properties").json()
+        setup_token = properties.get("setup-token")
+        database = self._warehouse_payload(settings)
+
+        if setup_token:
+            self._request(
+                "POST",
+                "/api/setup",
+                json={
+                    "token": setup_token,
+                    "user": {
+                        "email": settings.admin_email,
+                        "first_name": settings.admin_first_name,
+                        "last_name": settings.admin_last_name,
+                        "password": settings.admin_password,
+                        "site_name": "VWDP Metabase",
+                    },
+                    "prefs": {
+                        "site_name": "VWDP Metabase",
+                        "site_locale": "en",
+                        "allow_tracking": False,
+                    },
+                    "database": database,
+                },
+            )
+            return
+
+        session_id = self._request(
+            "POST",
+            "/api/session",
+            json={
+                "username": settings.admin_email,
+                "password": settings.admin_password,
+            },
+        ).json()["id"]
+        headers = {"X-Metabase-Session": session_id}
+        databases_payload = self._request("GET", "/api/database", headers=headers).json()
+        databases = (
+            databases_payload.get("data", [])
+            if isinstance(databases_payload, dict)
+            else databases_payload
+        )
+        if not any(item.get("name") == database["name"] for item in databases):
+            self._request("POST", "/api/database", headers=headers, json=database)
+
+
+def bootstrap_metabase(settings: MetabaseSettings) -> None:
+    validate_local_warehouse_url(settings.local_database_url)
+    engine = create_engine(settings.local_database_url, pool_pre_ping=True)
+    try:
+        provision_warehouse_reader(engine, settings.warehouse_password)
+    finally:
+        engine.dispose()
+
+    with httpx.Client(timeout=30.0) as http_client:
+        client = MetabaseClient(settings.metabase_url, http_client)
+        client.wait_until_healthy()
+        client.ensure_setup(settings)
