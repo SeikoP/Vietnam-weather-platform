@@ -94,6 +94,7 @@ Required runtime variables:
 
 - `LOCAL_DATABASE_URL`
 - `METABASE_DB_PASSWORD`
+- `METABASE_ENCRYPTION_SECRET_KEY`
 - `METABASE_WAREHOUSE_PASSWORD`
 - `METABASE_ADMIN_EMAIL`
 - `METABASE_ADMIN_PASSWORD`
@@ -103,6 +104,9 @@ Required runtime variables:
 
 No real values are written to `.env`, `.env.example`, Git, logs, or command output.
 `.env.example` receives placeholder names only.
+`METABASE_ENCRYPTION_SECRET_KEY` must be a random base64 value of at least 16 characters
+and is passed to Metabase as `MB_ENCRYPTION_SECRET_KEY` so stored warehouse credentials
+are encrypted at rest.
 
 ## Tailscale Collaboration Access
 
