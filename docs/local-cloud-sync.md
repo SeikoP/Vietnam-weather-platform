@@ -47,9 +47,11 @@ $env:LOCAL_DATABASE_URL = "postgresql+psycopg://vwdp:<url-encoded-password>@loca
 ```
 
 Lần đầu, local chưa có watermark nên lệnh lấy toàn bộ dữ liệu hiện có. Những lần sau,
-lệnh lấy toàn bộ khóa mới hơn watermark local, kể cả khi nhiều ngày chưa chạy. Mặc định
-không đọc lại dữ liệu cũ để giảm egress. Chỉ đặt `--lookback-days` khi cần kiểm tra lại
-các bản ghi có thể bị sửa muộn; đây là cửa sổ đọc lại, không phải giới hạn khoảng trống:
+lệnh lấy toàn bộ khóa mới hơn watermark local, kể cả khi nhiều ngày chưa chạy. Khi
+không truyền `--lookback-days`, giá trị mặc định là `0`: script không đọc lại dữ liệu
+cũ, nên egress chỉ gồm các dòng mới hơn watermark. Chỉ đặt `--lookback-days` lớn hơn
+`0` khi cần kiểm tra lại các bản ghi có thể bị sửa muộn; đây là cửa sổ đọc lại bổ sung,
+không phải giới hạn khoảng trống:
 
 ```powershell
 .venv\Scripts\python.exe scripts\sync_cloud_to_local.py --lookback-days 7

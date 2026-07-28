@@ -25,7 +25,8 @@ toàn bộ lịch sử. Lần chạy đầu tiên trên database local trống b
   - `analyst.fact_weather_daily`
   - `analyst.fact_weather_hourly`
   - `analyst.fact_aqi_hourly`
-- Đồng bộ tăng dần theo watermark local, có lookback mặc định ba ngày.
+- Đồng bộ tăng dần theo watermark local, mặc định không đọc lại dữ liệu cũ
+  (`--lookback-days 0`).
 - Upsert idempotent và báo cáo số dòng đã đọc/ghi theo bảng.
 - Chế độ `--full` để dựng lại dữ liệu local khi người vận hành chủ động yêu cầu.
 - Kiểm thử unit cho tính watermark, phạm vi lookback, thứ tự bảng và hành vi upsert.
@@ -64,7 +65,7 @@ Lệnh mặc định:
 Tùy chọn:
 
 ```text
---lookback-days N  Số ngày gần nhất được đọc lại và upsert, mặc định 3.
+--lookback-days N  Số ngày gần nhất được đọc lại và upsert, mặc định 0.
 --batch-size N      Số dòng mỗi batch ghi local, mặc định 1000.
 --full              Đọc lại toàn bộ bảng fact; không mặc định và phải chủ động chỉ định.
 ```
@@ -145,8 +146,9 @@ Truy vấn cloud trả dòng khi thỏa ít nhất một điều kiện:
 2. Thời gian quan sát nằm trong lookback tính từ thời điểm chạy.
 3. `--full` được bật.
 
-Lookback không phải lịch chạy. Nếu script chạy ngày 20/08 thì nó lấy toàn bộ dòng mới
-tới thời điểm đó và đọc lại dữ liệu từ 17/08 tới 20/08 khi dùng mặc định ba ngày.
+Lookback không phải lịch chạy. Nếu script chạy ngày 20/08 thì nó luôn lấy toàn bộ dòng
+mới tới thời điểm đó. Mặc định `0` không đọc lại dòng cũ; nếu truyền
+`--lookback-days 3`, script đọc lại thêm dữ liệu từ 17/08 tới 20/08.
 
 ### Upsert
 
@@ -174,7 +176,8 @@ Thiết kế watermark không tự phát hiện lỗ hổng cũ hơn lookback. N
 ## Egress
 
 - Lần đầu local trống tạo egress tương ứng toàn bộ dữ liệu được tải.
-- Các lần sau chỉ tạo egress cho dòng mới và lookback ba ngày.
+- Các lần sau mặc định chỉ tạo egress cho dòng mới; lookback lớn hơn `0` làm tăng
+  egress theo cửa sổ đọc lại được chọn.
 - Không chạy `SELECT *` toàn bảng ở chế độ mặc định.
 - Query dimension/fact chỉ chọn đúng các cột thuộc model hiện tại.
 - Thành viên đọc local không tạo Supabase egress.
@@ -194,7 +197,8 @@ Thiết kế watermark không tự phát hiện lỗ hổng cũ hơn lookback. N
 
 - Database local trống tạo truy vấn full lần đầu.
 - Watermark theo từng quận chỉ lấy khóa mới hơn.
-- Lookback đọc lại đúng khoảng ba ngày nhưng không thay đổi lịch chạy.
+- Mặc định lookback `0` chỉ đọc khóa mới; lookback được chỉ định đọc lại đúng cửa sổ
+  nhưng không thay đổi lịch chạy.
 - `--full` bỏ qua watermark.
 - Batch upsert dùng đúng conflict key.
 - Thứ tự dimension trước fact.
@@ -220,7 +224,8 @@ Thiết kế watermark không tự phát hiện lỗ hổng cũ hơn lookback. N
 ## Tiêu chí hoàn thành
 
 - Một lệnh thủ công dựng/cập nhật database local thành công.
-- Lần đầu tải đầy đủ; lần sau chỉ tải dòng mới cộng lookback.
+- Lần đầu tải đầy đủ; lần sau mặc định chỉ tải dòng mới, cộng thêm lookback nếu được
+  chỉ định.
 - Có thể chạy lại sau lỗi mà không tạo duplicate.
 - Không chạm container/database Tiki.
 - Không thay đổi ETL cloud.

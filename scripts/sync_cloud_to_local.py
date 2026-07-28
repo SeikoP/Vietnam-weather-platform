@@ -59,11 +59,14 @@ def run_local_migrations(local_url: str) -> None:
         if key not in {"CLOUD_DATABASE_URL", "LOCAL_DATABASE_URL"}
     }
     child_environment["DATABASE_URL"] = local_url
-    subprocess.run(
+    # The executable, arguments, and cwd are application constants. The database URL
+    # is passed only through the child environment and never enters the command line.
+    subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=True,
         cwd=REPOSITORY_ROOT,
         env=child_environment,
+        shell=False,
     )
 
 

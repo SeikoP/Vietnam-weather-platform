@@ -15,8 +15,10 @@
 - Never log database URLs, passwords, or connection-string representations.
 - `CLOUD_DATABASE_URL` is read-only; `LOCAL_DATABASE_URL` is the only writable target.
 - The default command is manual; do not add a scheduler, watcher, or background process.
-- Default `--lookback-days` is 3 and default `--batch-size` is 1000.
-- Default mode reads new rows plus the lookback window; `--full` is the only full-history mode.
+- Default `--lookback-days` is 0 and default `--batch-size` is 1000.
+- Default mode reads all rows newer than the local watermark without re-reading old
+  rows; a positive lookback adds a recheck window, and `--full` is the only
+  full-history mode.
 - Sync dimensions before facts in this exact order: district, date, hour, daily, hourly, AQI.
 - Use `(district_id, date_key)` for daily conflicts and `(district_id, hour_key)` for hourly/AQI conflicts.
 - Use `.venv\Scripts\python.exe -m pytest` and `.venv\Scripts\python.exe -m ruff check .` when Poetry is unavailable.
@@ -135,7 +137,7 @@ git commit -m "Add local weather PostgreSQL service"
 
 **Interfaces:**
 - Produces:
-  - `SyncOptions(lookback_days: int = 3, batch_size: int = 1000, full: bool = False)`
+  - `SyncOptions(lookback_days: int = 0, batch_size: int = 1000, full: bool = False)`
   - `TableSpec(name, table, conflict_columns, key_column, time_column, time_join)`
   - `SyncTableResult(table_name: str, rows_read: int, rows_upserted: int)`
   - `validate_distinct_databases(cloud_url: str, local_url: str) -> None`
@@ -199,7 +201,7 @@ from sqlalchemy.engine import make_url
 
 @dataclass(frozen=True)
 class SyncOptions:
-    lookback_days: int = 3
+    lookback_days: int = 0
     batch_size: int = 1000
     full: bool = False
 
@@ -597,7 +599,7 @@ def test_load_database_urls_requires_both_values() -> None:
 
 def test_parse_args_uses_safe_defaults() -> None:
     args = parse_args([])
-    assert args.lookback_days == 3
+    assert args.lookback_days == 0
     assert args.batch_size == 1000
     assert args.full is False
 ```
@@ -708,7 +710,7 @@ Add:
 
 - first-run/full-egress warning;
 - default incremental command;
-- `--lookback-days 0` strict-new-row command;
+- optional positive `--lookback-days` recheck command;
 - `--full` recovery command;
 - Power BI connection fields (`localhost`, `5433`, `vwdp`);
 - row-count verification SQL for all six tables;
@@ -779,13 +781,13 @@ Expected: all fixture rows are copied and all six table summaries are printed.
 
 Run the same command again.
 
-Expected: no duplicates; only rows inside the three-day lookback are upserted. Local
-row counts remain identical.
+Expected: no duplicates and no old rows are re-read because the default lookback is
+zero. Local row counts remain identical.
 
 - [ ] **Step 5: Add one new and one recently corrected source row**
 
-Insert a new latest hour/fact and update one fact inside the lookback in the source
-fixture. Run the sync again.
+Insert a new latest hour/fact and update one older fact in the source fixture. Run the
+default sync, then run with an explicit positive lookback to verify both behaviors.
 
 Expected: the new row appears locally and the corrected local value matches the source.
 

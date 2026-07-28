@@ -43,8 +43,8 @@ def test_parse_args_rejects_invalid_numbers(arguments: list[str], expected_code:
 def test_run_local_migrations_passes_only_local_url_as_database_url(monkeypatch) -> None:
     captured = {}
 
-    def fake_run(command, *, check, env, cwd):
-        captured.update(command=command, check=check, env=env, cwd=cwd)
+    def fake_run(command, *, check, env, cwd, shell):
+        captured.update(command=command, check=check, env=env, cwd=cwd, shell=shell)
 
     monkeypatch.setattr(sync_cloud_to_local.subprocess, "run", fake_run)
 
@@ -52,6 +52,7 @@ def test_run_local_migrations_passes_only_local_url_as_database_url(monkeypatch)
 
     assert captured["command"][-3:] == ["alembic", "upgrade", "head"]
     assert captured["check"] is True
+    assert captured["shell"] is False
     assert captured["env"]["DATABASE_URL"].endswith("@localhost:5433/vwdp")
     assert "CLOUD_DATABASE_URL" not in captured["env"]
     assert "LOCAL_DATABASE_URL" not in captured["env"]
@@ -161,5 +162,8 @@ def test_main_disposes_engines_and_hides_credentials_on_failure(monkeypatch, cap
     assert disposed == ["local", "cloud"]
     error = capsys.readouterr().err
     assert "RuntimeError" in error
+    assert "failed with" not in error
+    assert "cloud.example" not in error
+    assert "localhost:5433/vwdp" not in error
     assert "cloud-secret" not in error
     assert "local-secret" not in error

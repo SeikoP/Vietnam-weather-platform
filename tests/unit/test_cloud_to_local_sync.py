@@ -11,6 +11,7 @@ from src.sync.cloud_to_local import (
     CloudToLocalSync,
     SyncOptions,
     SyncTableResult,
+    TableSpec,
     build_source_statement,
     build_upsert_statement,
     load_local_district_ids,
@@ -22,6 +23,10 @@ from src.sync.cloud_to_local import (
 def test_sync_options_reject_negative_lookback() -> None:
     with pytest.raises(ValueError, match="lookback_days"):
         SyncOptions(lookback_days=-1)
+
+
+def test_sync_options_defaults_to_gap_only_sync() -> None:
+    assert SyncOptions().lookback_days == 0
 
 
 def test_sync_options_reject_non_positive_batch_size() -> None:
@@ -56,6 +61,17 @@ def test_table_specs_preserve_foreign_key_order_and_conflict_keys() -> None:
     assert DAILY_SPEC.name == "fact_weather_daily"
     assert HOURLY_SPEC.name == "fact_weather_hourly"
     assert AQI_SPEC.name == "fact_aqi_hourly"
+
+
+def test_table_spec_rejects_cutoff_join_without_key_column() -> None:
+    with pytest.raises(ValueError, match="cutoff_join requires key_column"):
+        TableSpec(
+            name="invalid",
+            table=DAILY_SPEC.table,
+            conflict_columns=("district_id", "date_key"),
+            key_column=None,
+            cutoff_join=HOURLY_SPEC.table,
+        )
 
 
 class RecordingResult:
@@ -171,6 +187,28 @@ def test_upsert_statement_updates_daily_row_on_composite_conflict() -> None:
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "ON CONFLICT (district_id, date_key) DO UPDATE" in sql
     assert "temperature_2m_mean" in sql
+
+
+def test_upsert_statement_updates_columns_missing_from_first_row() -> None:
+    statement = build_upsert_statement(
+        DAILY_SPEC,
+        [
+            {
+                "district_id": 1,
+                "date_key": 20260728,
+                "observed_date": datetime(2026, 7, 28, tzinfo=UTC).date(),
+            },
+            {
+                "district_id": 2,
+                "date_key": 20260728,
+                "observed_date": datetime(2026, 7, 28, tzinfo=UTC).date(),
+                "temperature_2m_mean": 30.5,
+            },
+        ],
+    )
+
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "temperature_2m_mean = excluded.temperature_2m_mean" in sql
 
 
 def test_sync_service_runs_tables_in_order_and_uses_utc_cutoff() -> None:

@@ -19,7 +19,7 @@ from src.database.models import (
 
 @dataclass(frozen=True)
 class SyncOptions:
-    lookback_days: int = 3
+    lookback_days: int = 0
     batch_size: int = 1000
     full: bool = False
 
@@ -44,6 +44,10 @@ class TableSpec:
     cutoff_column: str | None = None
     cutoff_join: Table | None = None
     always_full: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cutoff_join is not None and self.key_column is None:
+            raise ValueError("cutoff_join requires key_column")
 
 
 @dataclass(frozen=True)
@@ -197,10 +201,20 @@ def build_upsert_statement(spec: TableSpec, rows: list[dict[str, Any]]):
     if not rows:
         raise ValueError("rows must not be empty")
 
-    statement = insert(spec.table).values(rows)
+    provided_names = set().union(*(row.keys() for row in rows))
+    table_names = {column.name for column in spec.table.columns}
+    unknown_names = provided_names - table_names
+    if unknown_names:
+        raise ValueError(f"unknown columns for {spec.name}: {sorted(unknown_names)}")
+
+    ordered_names = [
+        column.name for column in spec.table.columns if column.name in provided_names
+    ]
+    normalized_rows = [{name: row.get(name) for name in ordered_names} for row in rows]
+    statement = insert(spec.table).values(normalized_rows)
     update_columns = {
         name: getattr(statement.excluded, name)
-        for name in rows[0]
+        for name in ordered_names
         if name not in spec.conflict_columns
     }
     return statement.on_conflict_do_update(
