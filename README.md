@@ -8,7 +8,7 @@ Nền tảng ETL, warehouse, API và reporting cho dữ liệu thời tiết/AQI
 - PostgreSQL lưu dữ liệu phân tích trong schema `analyst`.
 - FastAPI cung cấp dữ liệu đã xử lý.
 - Monitoring lưu ETL run, log, validation errors và API requests.
-- Power BI đọc trực tiếp warehouse.
+- Power BI đọc CSV release từ Cloudflare R2, không query trực tiếp Supabase.
 
 ## Lệnh Chính
 
@@ -55,3 +55,5 @@ poetry run vwdp-etl --run-type historical-daily --start-date 2026-07-01 --end-da
 - `docs/database/warehouse-design.md`: mô hình warehouse.
 - `docs/database/data-cleanup.md`: cleanup dữ liệu warehouse.
 - `docs/powerbi/guide.md`: kết nối Power BI.
+- `docs/r2-snapshots.md`: publish, verify và rollback release R2.
+- `docs/local-cloud-sync.md`: PostgreSQL Docker local tùy chọn cho recovery.

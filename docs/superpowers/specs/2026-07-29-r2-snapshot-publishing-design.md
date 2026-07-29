@@ -1,317 +1,166 @@
-# Thiết kế xuất bản snapshot dữ liệu lên Cloudflare R2
+# Thiết kế xuất bản warehouse lên Cloudflare R2
 
-## Mục tiêu
+## Kết luận
 
-Giảm Supabase egress khi thành viên và Power BI đọc dữ liệu bằng cách giữ Supabase
-PostgreSQL làm nguồn dữ liệu chuẩn, đồng thời xuất bản bản sao chỉ đọc dưới dạng file
-tĩnh trên Cloudflare R2.
+Supabase PostgreSQL là nguồn dữ liệu chuẩn của pipeline production. Cloudflare R2 là
+lớp phân phối chỉ đọc cho Power BI và member. Dữ liệu lịch sử ban đầu được bootstrap
+trực tiếp từ PostgreSQL local; các lần chạy hằng ngày chỉ đọc phần còn thiếu từ
+Supabase theo watermark.
 
-Thiết kế gồm hai giai đoạn:
+Project hiện phục vụ 30 quận/huyện Hà Nội. R2 phản chiếu sáu bảng trong schema
+`analyst`; không mở rộng sang 63 tỉnh/thành trong phạm vi này.
 
-1. Bootstrap toàn bộ lịch sử hiện có từ PostgreSQL Docker `vwdp-postgres` lên R2.
-2. Bổ sung job GitHub Actions để xuất bản dữ liệu mới sau mỗi cron ETL thành công.
-
-## Kiến trúc
+## Luồng dữ liệu
 
 ```text
 Open-Meteo
-    |
-    v
-Python ETL
-    |
-    v
-Supabase PostgreSQL (system of record)
-    |
-    +--> PostgreSQL Docker local (recovery/manual sync)
-    |
-    +--> Cloudflare R2 (read-only BI snapshots)
-              |
-              +--> Power BI
-              +--> Thành viên
+  -> GitHub Actions ETL
+  -> Supabase PostgreSQL
+  -> R2 publisher đọc delta theo watermark
+  -> merge với Parquet của release hiện tại bằng DuckDB
+  -> release mới gồm Parquet + CSV
+  -> cập nhật latest.json cuối cùng
+  -> Power BI đọc CSV qua custom domain
 ```
 
-Supabase chịu trách nhiệm upsert, ràng buộc quan hệ, API và monitoring. R2 chỉ là lớp
-phân phối dữ liệu đã commit, không thay thế database và không nhận chỉnh sửa trực tiếp.
+Không dual-write trực tiếp từ extractor vào Supabase và R2. R2 chỉ được publish sau
+khi ba ETL scheduled hoàn tất. Nếu R2 lỗi, có thể chạy lại publisher mà không gọi lại
+Open-Meteo.
 
-## Phạm vi giai đoạn 1
+## Object layout
 
-Giai đoạn đầu chỉ thực hiện:
-
-- xác minh PostgreSQL Docker đã đồng bộ với Supabase;
-- tạo bucket R2 riêng cho snapshot;
-- export sáu bảng `analyst` từ PostgreSQL Docker;
-- upload dữ liệu lịch sử lên R2;
-- kiểm tra row count, khoảng thời gian và checksum;
-- publish `manifest.json` sau khi tất cả object hợp lệ.
-
-Giai đoạn đầu không sửa workflow cron, không đổi Power BI connection và không xóa dữ
-liệu khỏi Supabase hoặc PostgreSQL Docker.
-
-## Nguồn bootstrap
-
-Nguồn bootstrap là PostgreSQL Docker:
-
-- container: `vwdp-postgres`;
-- endpoint local: `localhost:5433`;
-- database: `vwdp`;
-- schema: `analyst`.
-
-Trước khi export, chạy script hiện có:
-
-```powershell
-.\.venv\Scripts\python.exe -m dotenv run -- `
-  .\.venv\Scripts\python.exe scripts\sync_cloud_to_local.py --lookback-days 1
-```
-
-Bootstrap chỉ được tiếp tục khi ba fact table có cùng `max(observed_date)`.
-
-## Dataset được xuất bản
-
-Giữ nguyên star schema hiện tại:
-
-- `dim_district`;
-- `dim_date`;
-- `dim_hour`;
-- `fact_weather_daily`;
-- `fact_weather_hourly`;
-- `fact_aqi_hourly`.
-
-CSV được chọn làm định dạng phục vụ Power BI qua Web connector. Các dimension nhỏ được
-xuất thành một file. `dim_hour` và ba fact table được chia theo tháng để tránh một
-object quá lớn và chuẩn bị cho cơ chế incremental sau này.
-
-## Bố cục object R2
+Một bucket chỉ chứa dữ liệu thời tiết có thể công khai:
 
 ```text
 v1/
-  dimensions/
-    dim_district.csv
-    dim_date.csv
-  history/
-    dim_hour/year=2026/month=07/data.csv
-    fact_weather_daily/year=2026/month=07/data.csv
-    fact_weather_hourly/year=2026/month=07/data.csv
-    fact_aqi_hourly/year=2026/month=07/data.csv
-  manifests/
-    bootstrap-20260729T151500Z.json
-  manifest.json
+  latest.json
+  current/
+    analyst/
+      <table>.csv
+  releases/
+    <release_id>/
+      manifest.json
+      analyst/
+        dim_district.parquet
+        dim_date.parquet
+        dim_hour.parquet
+        fact_weather_daily.parquet
+        fact_weather_hourly.parquet
+        fact_aqi_hourly.parquet
+        dim_district.csv
+        dim_date.csv
+        dim_hour.csv
+        fact_weather_daily.csv
+        fact_weather_hourly.csv
+        fact_aqi_hourly.csv
 ```
 
-Các object dữ liệu được upload trước. `v1/manifest.json` chỉ được cập nhật sau khi mọi
-file đã upload và xác minh thành công. Power BI chỉ đọc manifest hiện hành.
+`release_id` dùng timestamp UTC có thể sắp xếp, ví dụ `20260729T181500Z`. Manifest
+ghi cả UTC và `Asia/Ho_Chi_Minh`. Mỗi release bất biến; `latest.json` là object duy
+nhất được thay thế và luôn được upload cuối cùng. Giữ tối thiểu release hiện tại và
+hai release trước để rollback.
 
-## Manifest
+Sau khi kiểm tra release bất biến, publisher copy sáu CSV sang
+`v1/current/analyst/<table>.csv` và xác minh size/checksum. Các alias này là giao diện
+ổn định cho Power BI; `latest.json` chỉ được activate sau khi toàn bộ alias thành công.
 
-Manifest chứa:
+Không lưu PostgreSQL dump trong bucket public. Backup database là luồng riêng, ngoài
+phạm vi publisher Power BI.
 
-- schema version;
-- thời điểm tạo theo UTC;
-- nguồn dữ liệu;
-- ngày nhỏ nhất và lớn nhất;
-- danh sách object;
-- table name và partition;
-- row count;
-- kích thước byte;
-- SHA-256 checksum;
-- trạng thái `complete`.
+## Định dạng
 
-Manifest không chứa database URL, R2 credentials hoặc thông tin bí mật khác.
+- Parquet là trạng thái chuẩn để GitHub Actions tải về và merge.
+- CSV UTF-8 là giao diện ổn định cho Power BI Web connector.
+- JSON dùng cho manifest và con trỏ release.
+- Null được xuất thành chuỗi trống trong CSV; ngày và timestamp dùng ISO 8601.
+- Thứ tự cột lấy từ SQLAlchemy model và không phụ thuộc thứ tự trả về ngẫu nhiên.
 
-## Cấu hình R2
+## Mapping bảng và khóa
 
-Bucket mặc định:
+| Bảng | Khóa upsert |
+| --- | --- |
+| `dim_district` | `district_id` |
+| `dim_date` | `date_key` |
+| `dim_hour` | `hour_key` |
+| `fact_weather_daily` | `district_id, date_key` |
+| `fact_weather_hourly` | `district_id, hour_key` |
+| `fact_aqi_hourly` | `district_id, hour_key` |
 
-```text
-vwdp-snapshots
-```
+Merge dimension trước fact. Khi source và snapshot có cùng khóa, source thay toàn bộ
+giá trị của row cũ. Chạy lại cùng một khoảng ngày phải cho cùng row count và không
+tạo duplicate.
 
-Giai đoạn bootstrap giữ bucket private. R2 API token chỉ có quyền `Object Read & Write`
-trên bucket này.
+## Bootstrap
 
-Biến môi trường:
+Bootstrap đọc `LOCAL_DATABASE_URL`, stream toàn bộ sáu bảng từ PostgreSQL local,
+ghi Parquet và CSV, kiểm tra row count/PK/FK/checksum rồi upload release đầu tiên.
+Chỉ sau khi toàn bộ 12 data object và manifest tồn tại mới ghi `v1/latest.json`.
 
-```text
-R2_ACCOUNT_ID
-R2_ACCESS_KEY_ID
-R2_SECRET_ACCESS_KEY
-R2_BUCKET_NAME
-```
+## Daily publish và repair
 
-GitHub Actions về sau lưu access key và secret key trong GitHub Secrets; account ID và
-bucket name lưu trong GitHub Variables.
+Daily publisher đọc `v1/latest.json`. Watermark mặc định là `max_date` của release;
+publisher lấy mọi khoảng thiếu từ `watermark + 1` đến ngày đích, không mặc định đọc
+lại ba ngày.
 
-## Thành phần code dự kiến
+Fact hourly và AQI lọc theo `analyst.dim_hour.observed_date`. `dim_hour` lấy cùng
+khoảng ngày; hai dimension nhỏ còn lại được đọc toàn bộ để phản ánh thay đổi seed.
 
-- `src/export/r2_snapshot.py`: truy vấn, partition, serialize, checksum và manifest.
-- `scripts/bootstrap_r2_history.py`: CLI bootstrap từ PostgreSQL local.
-- `tests/unit/test_r2_snapshot.py`: kiểm tra partition, row count, checksum và manifest.
-- `docs/r2-snapshots.md`: hướng dẫn vận hành bằng tiếng Việt.
-- `pyproject.toml`: thêm `boto3` làm S3-compatible client.
+Repair dữ liệu đã publish bắt buộc truyền `--start-date`, `--end-date` và
+`--force-republish`. Delete không được suy ra từ incremental upsert; một full
+bootstrap/reconciliation mới loại bỏ được row đã xóa ở source.
 
-Exporter dùng SQLAlchemy streaming để không nạp toàn bộ hai fact table hourly vào RAM.
-Mỗi partition được ghi vào thư mục tạm riêng và xóa sau khi upload thành công.
+## Tính nguyên tử và lỗi
 
-## Xử lý lỗi
+Publisher upload vào prefix release mới, kiểm tra `head_object`, size, SHA-256 và row
+count, sau đó mới thay `latest.json`. Release chưa hoàn tất không được active.
 
-- Lỗi query PostgreSQL: dừng trước khi upload partition đó.
-- Lỗi upload: không cập nhật `manifest.json`; snapshot trước vẫn hợp lệ.
-- Row count hoặc checksum không khớp: đánh dấu bootstrap thất bại và giữ object dưới
-  manifest timestamp để điều tra.
-- Chạy lại: upload vào manifest timestamp mới; không ghi đè snapshot hoàn chỉnh cũ.
-- Không tự xóa object lỗi trong lần triển khai đầu; cleanup là thao tác vận hành riêng.
+Workflow dùng một concurrency group cho ETL và R2 publisher. Nếu `latest.json` thay
+đổi kể từ khi bắt đầu, publisher dừng thay vì ghi đè release của workflow khác.
 
-## Giai đoạn 2: publish hằng ngày
+Failure behavior:
 
-Sau bootstrap, tách workflow hiện tại thành nhiều job để dependency graph trên GitHub
-Actions thể hiện rõ từng giai đoạn:
+- ETL lỗi: không chạy publisher.
+- Publisher lỗi trước activate: Power BI tiếp tục dùng release cũ.
+- Activate lỗi: release mới tồn tại nhưng chưa active; retry được.
+- Summary/Discord lỗi: không làm thay đổi trạng thái ETL hoặc release.
 
-```text
-1. Kiểm tra mã nguồn
-    |
-2. Chuẩn bị database
-    |
-3. Thu thập daily
-    |
-4. Thu thập hourly
-    |
-5. Thu thập AQI
-    |
-6. Xuất bản R2
-    |
-7. Tổng hợp kết quả
-```
+## GitHub Actions
 
-Các job ETL chạy tuần tự để tránh tăng tải Open-Meteo và giữ thứ tự trình bày dễ hiểu.
-Mỗi job GitHub-hosted tự checkout và setup runtime; Poetry cache được dùng để giảm thời
-gian cài lại dependencies.
+Workflow có bảy job hiển thị:
 
-Job `publish-r2` chỉ chạy khi ba job thu thập đều thành công. Job này:
+1. `validate`
+2. `prepare-database`
+3. `collect-daily`
+4. `collect-hourly`
+5. `collect-aqi`
+6. `publish-r2`
+7. `summary`
 
-- đọc manifest watermark;
-- export các ngày chưa publish;
-- upload object bất biến theo ngày;
-- xác minh row count và checksum;
-- cập nhật manifest sau cùng.
+R2 download, merge, validate và upload là các step trong cùng `publish-r2` job để
+không truyền snapshot lớn qua GitHub artifacts. Manual demo ETL không tự publish R2.
+Publisher có thể được chạy thủ công theo khoảng ngày để repair.
 
-Thông thường job chỉ đọc ngày hôm qua. Nếu R2 job lỗi nhiều ngày, watermark giúp lần
-chạy tiếp theo catch up các ngày chưa publish mà không đọc lại lịch sử đã xuất bản.
+## Cấu hình
 
-Manual recovery hiện có tiếp tục đồng bộ Supabase xuống PostgreSQL Docker. Giai đoạn 2
-sẽ bổ sung lệnh republish một khoảng ngày cụ thể lên R2 khi cần sửa hoặc bù dữ liệu.
+GitHub Secrets:
 
-### Định nghĩa job
+- `DATABASE_URL`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `DISCORD_WEBHOOK_URL`
 
-| Job ID | Tên hiển thị | Phụ thuộc | Trách nhiệm |
-| --- | --- | --- | --- |
-| `validate` | `1. Kiểm tra mã nguồn` | Không | Setup Python/Poetry, lint và test |
-| `prepare-database` | `2. Chuẩn bị database` | `validate` | Alembic migration và seed dimensions |
-| `collect-daily` | `3. Thu thập thời tiết daily` | `prepare-database` | Chạy `incremental-daily` |
-| `collect-hourly` | `4. Thu thập thời tiết hourly` | `collect-daily` | Chạy `incremental-hourly` |
-| `collect-aqi` | `5. Thu thập AQI hourly` | `collect-hourly` | Chạy `incremental-aqi-hourly` |
-| `publish-r2` | `6. Xuất bản snapshot R2` | Ba job collect | Export và upload dữ liệu chưa publish |
-| `summary` | `7. Tổng hợp kết quả` | Tất cả job | Tạo Step Summary và gửi Discord |
+GitHub Variables:
 
-Job `summary` dùng `if: always()` để vẫn chạy khi một giai đoạn thất bại. Nó không biến
-một workflow thất bại thành thành công; trạng thái tổng thể vẫn phản ánh kết quả các job
-bắt buộc.
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET_NAME`
+- `R2_PUBLIC_BASE_URL`
+- `DISCORD_NOTIFICATIONS_ENABLED`
 
-### Trao đổi metadata giữa các job
+Local bootstrap dùng thêm `LOCAL_DATABASE_URL`. Không log URL database, access key,
+secret key hoặc exception chứa credential.
 
-Mỗi job ghi output tối thiểu:
+## Power BI
 
-- `started_at_utc`;
-- `finished_at_utc`;
-- `duration_seconds`;
-- `run_type`;
-- `etl_run_id`;
-- `rows_upserted`;
-- `rows_skipped`;
-- `min_date`;
-- `max_date`;
-- thông báo lỗi đã được loại bỏ thông tin nhạy cảm.
-
-Job `summary` nhận outputs qua `needs` và có thể truy vấn bổ sung `monitoring.etl_runs`
-bằng `etl_run_id`. Không truyền database URL hoặc R2 credentials qua job outputs hay
-artifacts.
-
-## Thời gian và GitHub Step Summary
-
-Database và manifest tiếp tục lưu timestamp chuẩn UTC. Khi hiển thị cho người dùng,
-workflow chuyển đổi sang múi giờ IANA:
-
-```text
-Asia/Ho_Chi_Minh
-```
-
-Thời gian hiển thị dùng định dạng:
-
-```text
-DD/MM/YYYY HH:mm:ss (UTC+7)
-```
-
-Cron GitHub Actions vẫn khai báo bằng UTC. Workflow ghi rõ trong Summary:
-
-```text
-Lịch cron: 18:00 UTC
-Giờ Việt Nam: 01:00 ngày hôm sau (UTC+7)
-```
-
-Không cộng thủ công bảy giờ trong shell hoặc Python. Script report dùng
-`zoneinfo.ZoneInfo("Asia/Ho_Chi_Minh")` để tránh logic thời gian rải rác.
-
-Step Summary gồm:
-
-1. Trạng thái tổng thể và trigger (`schedule` hoặc `workflow_dispatch`).
-2. Bảng tiến trình từng job.
-3. Bảng kết quả ETL theo run type.
-4. Kết quả publish R2.
-5. Khoảng dữ liệu hiện có.
-6. Cảnh báo, lỗi và bước recovery đề xuất.
-
-Bảng tiến trình:
-
-| Bước | Trạng thái | Bắt đầu | Kết thúc | Thời lượng |
-| --- | --- | --- | --- | --- |
-| Kiểm tra mã nguồn | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-| Chuẩn bị database | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-| Daily | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-| Hourly | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-| AQI | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-| Publish R2 | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
-
-Bảng ETL hiển thị `run_type`, `etl_run_id`, số dòng upsert, số dòng bỏ qua và min/max
-date. Phần R2 hiển thị bucket, manifest version, số object, tổng byte, row count và
-watermark mới nhất nhưng không hiển thị endpoint có chữ ký hoặc credentials.
-
-Nếu một job thất bại, Summary chỉ ra job đầu tiên lỗi và lệnh recovery phù hợp. Ví dụ,
-nếu ETL đã hoàn thành nhưng `publish-r2` lỗi, hướng dẫn retry publisher thay vì gọi lại
-Open-Meteo.
-
-## Kiểm thử và nghiệm thu
-
-Bootstrap đạt yêu cầu khi:
-
-1. Sync Supabase xuống PostgreSQL Docker thành công.
-2. Ba fact table có cùng ngày lớn nhất.
-3. Tổng row count trong manifest bằng tổng row count PostgreSQL theo từng bảng.
-4. Mọi object có checksum SHA-256 và có thể đọc lại từ R2.
-5. `manifest.json` có trạng thái `complete`.
-6. Không có credential trong log, manifest hoặc Git diff.
-7. Chạy lại bootstrap tạo version mới mà không làm hỏng version đang hoạt động.
-
-Workflow hằng ngày đạt yêu cầu khi:
-
-1. GitHub Actions graph hiển thị bảy job theo đúng dependency.
-2. Job sau không chạy khi dependency bắt buộc thất bại, ngoại trừ `summary`.
-3. Summary luôn được tạo và mọi thời gian hiển thị theo `Asia/Ho_Chi_Minh`.
-4. Duration của từng job được tính từ timestamp UTC, không từ chuỗi đã format.
-5. Row count trong Summary khớp `monitoring.etl_runs` và manifest R2.
-6. Lỗi R2 không làm mất manifest hoàn chỉnh trước đó.
-
-## Ngoài phạm vi
-
-- Dùng R2 thay Supabase làm database.
-- DirectQuery Power BI vào file R2.
-- Public bucket hoặc custom domain trong giai đoạn bootstrap.
-- R2 Data Catalog, R2 SQL, Iceberg hoặc Worker API.
-- Xóa dữ liệu lịch sử khỏi Supabase.
+Power Query dùng hostname cố định từ `R2_PUBLIC_BASE_URL` và `Web.Contents` với
+`RelativePath`. Một function chung đọc `v1/current/analyst/<table>.csv`; sáu query
+bảng chỉ truyền tên bảng. Scheduled refresh đặt sau workflow ít nhất 30 phút.
