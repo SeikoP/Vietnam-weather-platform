@@ -162,25 +162,130 @@ Mỗi partition được ghi vào thư mục tạm riêng và xóa sau khi uploa
 
 ## Giai đoạn 2: publish hằng ngày
 
-Sau bootstrap, thêm job `publish-r2` phụ thuộc job ETL:
+Sau bootstrap, tách workflow hiện tại thành nhiều job để dependency graph trên GitHub
+Actions thể hiện rõ từng giai đoạn:
 
 ```text
-ETL commit Supabase
+1. Kiểm tra mã nguồn
     |
-    v
-publish-r2
+2. Chuẩn bị database
     |
-    +--> đọc manifest watermark
-    +--> export các ngày chưa publish
-    +--> upload object bất biến theo ngày
-    +--> cập nhật manifest sau cùng
+3. Thu thập daily
+    |
+4. Thu thập hourly
+    |
+5. Thu thập AQI
+    |
+6. Xuất bản R2
+    |
+7. Tổng hợp kết quả
 ```
 
-Thông thường job chỉ đọc ngày hôm qua. Nếu R2 job lỗi nhiều ngày, watermark giúp job
-tiếp theo catch up các ngày chưa publish mà không đọc lại lịch sử đã xuất bản.
+Các job ETL chạy tuần tự để tránh tăng tải Open-Meteo và giữ thứ tự trình bày dễ hiểu.
+Mỗi job GitHub-hosted tự checkout và setup runtime; Poetry cache được dùng để giảm thời
+gian cài lại dependencies.
+
+Job `publish-r2` chỉ chạy khi ba job thu thập đều thành công. Job này:
+
+- đọc manifest watermark;
+- export các ngày chưa publish;
+- upload object bất biến theo ngày;
+- xác minh row count và checksum;
+- cập nhật manifest sau cùng.
+
+Thông thường job chỉ đọc ngày hôm qua. Nếu R2 job lỗi nhiều ngày, watermark giúp lần
+chạy tiếp theo catch up các ngày chưa publish mà không đọc lại lịch sử đã xuất bản.
 
 Manual recovery hiện có tiếp tục đồng bộ Supabase xuống PostgreSQL Docker. Giai đoạn 2
 sẽ bổ sung lệnh republish một khoảng ngày cụ thể lên R2 khi cần sửa hoặc bù dữ liệu.
+
+### Định nghĩa job
+
+| Job ID | Tên hiển thị | Phụ thuộc | Trách nhiệm |
+| --- | --- | --- | --- |
+| `validate` | `1. Kiểm tra mã nguồn` | Không | Setup Python/Poetry, lint và test |
+| `prepare-database` | `2. Chuẩn bị database` | `validate` | Alembic migration và seed dimensions |
+| `collect-daily` | `3. Thu thập thời tiết daily` | `prepare-database` | Chạy `incremental-daily` |
+| `collect-hourly` | `4. Thu thập thời tiết hourly` | `collect-daily` | Chạy `incremental-hourly` |
+| `collect-aqi` | `5. Thu thập AQI hourly` | `collect-hourly` | Chạy `incremental-aqi-hourly` |
+| `publish-r2` | `6. Xuất bản snapshot R2` | Ba job collect | Export và upload dữ liệu chưa publish |
+| `summary` | `7. Tổng hợp kết quả` | Tất cả job | Tạo Step Summary và gửi Discord |
+
+Job `summary` dùng `if: always()` để vẫn chạy khi một giai đoạn thất bại. Nó không biến
+một workflow thất bại thành thành công; trạng thái tổng thể vẫn phản ánh kết quả các job
+bắt buộc.
+
+### Trao đổi metadata giữa các job
+
+Mỗi job ghi output tối thiểu:
+
+- `started_at_utc`;
+- `finished_at_utc`;
+- `duration_seconds`;
+- `run_type`;
+- `etl_run_id`;
+- `rows_upserted`;
+- `rows_skipped`;
+- `min_date`;
+- `max_date`;
+- thông báo lỗi đã được loại bỏ thông tin nhạy cảm.
+
+Job `summary` nhận outputs qua `needs` và có thể truy vấn bổ sung `monitoring.etl_runs`
+bằng `etl_run_id`. Không truyền database URL hoặc R2 credentials qua job outputs hay
+artifacts.
+
+## Thời gian và GitHub Step Summary
+
+Database và manifest tiếp tục lưu timestamp chuẩn UTC. Khi hiển thị cho người dùng,
+workflow chuyển đổi sang múi giờ IANA:
+
+```text
+Asia/Ho_Chi_Minh
+```
+
+Thời gian hiển thị dùng định dạng:
+
+```text
+DD/MM/YYYY HH:mm:ss (UTC+7)
+```
+
+Cron GitHub Actions vẫn khai báo bằng UTC. Workflow ghi rõ trong Summary:
+
+```text
+Lịch cron: 18:00 UTC
+Giờ Việt Nam: 01:00 ngày hôm sau (UTC+7)
+```
+
+Không cộng thủ công bảy giờ trong shell hoặc Python. Script report dùng
+`zoneinfo.ZoneInfo("Asia/Ho_Chi_Minh")` để tránh logic thời gian rải rác.
+
+Step Summary gồm:
+
+1. Trạng thái tổng thể và trigger (`schedule` hoặc `workflow_dispatch`).
+2. Bảng tiến trình từng job.
+3. Bảng kết quả ETL theo run type.
+4. Kết quả publish R2.
+5. Khoảng dữ liệu hiện có.
+6. Cảnh báo, lỗi và bước recovery đề xuất.
+
+Bảng tiến trình:
+
+| Bước | Trạng thái | Bắt đầu | Kết thúc | Thời lượng |
+| --- | --- | --- | --- | --- |
+| Kiểm tra mã nguồn | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+| Chuẩn bị database | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+| Daily | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+| Hourly | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+| AQI | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+| Publish R2 | Thành công/Thất bại/Bỏ qua | Giờ Việt Nam | Giờ Việt Nam | Giây/phút |
+
+Bảng ETL hiển thị `run_type`, `etl_run_id`, số dòng upsert, số dòng bỏ qua và min/max
+date. Phần R2 hiển thị bucket, manifest version, số object, tổng byte, row count và
+watermark mới nhất nhưng không hiển thị endpoint có chữ ký hoặc credentials.
+
+Nếu một job thất bại, Summary chỉ ra job đầu tiên lỗi và lệnh recovery phù hợp. Ví dụ,
+nếu ETL đã hoàn thành nhưng `publish-r2` lỗi, hướng dẫn retry publisher thay vì gọi lại
+Open-Meteo.
 
 ## Kiểm thử và nghiệm thu
 
@@ -193,6 +298,15 @@ Bootstrap đạt yêu cầu khi:
 5. `manifest.json` có trạng thái `complete`.
 6. Không có credential trong log, manifest hoặc Git diff.
 7. Chạy lại bootstrap tạo version mới mà không làm hỏng version đang hoạt động.
+
+Workflow hằng ngày đạt yêu cầu khi:
+
+1. GitHub Actions graph hiển thị bảy job theo đúng dependency.
+2. Job sau không chạy khi dependency bắt buộc thất bại, ngoại trừ `summary`.
+3. Summary luôn được tạo và mọi thời gian hiển thị theo `Asia/Ho_Chi_Minh`.
+4. Duration của từng job được tính từ timestamp UTC, không từ chuỗi đã format.
+5. Row count trong Summary khớp `monitoring.etl_runs` và manifest R2.
+6. Lỗi R2 không làm mất manifest hoàn chỉnh trước đó.
 
 ## Ngoài phạm vi
 
