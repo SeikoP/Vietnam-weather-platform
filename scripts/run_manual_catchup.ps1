@@ -15,6 +15,7 @@ param(
     [string]$RunType = 'all',
 
     [switch]$SkipPrepare,
+    [switch]$SkipR2,
     [switch]$DryRun
 )
 
@@ -116,6 +117,40 @@ foreach ($type in $runTypes) {
             $EndDate
         )
     }
+}
+
+if (-not $SkipR2 -and $RunType -eq 'all') {
+    $publishArgs = @(
+        'scripts/publish_r2_release.py',
+        '--start-date',
+        $StartDate,
+        '--end-date',
+        $EndDate,
+        '--force-republish'
+    )
+    $verifyArgs = @('scripts/publish_r2_release.py', '--verify-only')
+
+    if ($runner.UsePoetry) {
+        $dotenvPrefix = @(
+            'run',
+            'python',
+            '-m',
+            'dotenv',
+            'run',
+            '--',
+            'poetry',
+            'run',
+            'python'
+        )
+        Invoke-Step 'Publish repaired R2 release' $runner.Python ($dotenvPrefix + $publishArgs)
+        Invoke-Step 'Verify latest R2 release' $runner.Python ($dotenvPrefix + $verifyArgs)
+    } else {
+        $dotenvPrefix = @('-m', 'dotenv', 'run', '--', $runner.Python)
+        Invoke-Step 'Publish repaired R2 release' $runner.Python ($dotenvPrefix + $publishArgs)
+        Invoke-Step 'Verify latest R2 release' $runner.Python ($dotenvPrefix + $verifyArgs)
+    }
+} elseif (-not $SkipR2) {
+    Write-Warning 'R2 publish skipped because RunType is not all. Run all ETL types before publishing.'
 }
 
 Write-Host "Manual catch-up completed for $StartDate to $EndDate."
