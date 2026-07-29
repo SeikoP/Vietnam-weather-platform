@@ -8,7 +8,11 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
-from src.r2.exporter import SnapshotMerger, WarehouseExporter
+from src.r2.exporter import (
+    SnapshotMerger,
+    WarehouseExporter,
+    _execute_validated_query,
+)
 from src.r2.models import TableSpec
 
 pytestmark = pytest.mark.filterwarnings(
@@ -100,6 +104,17 @@ def test_merge_rejects_unsafe_sql_identifiers(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsafe SQL identifier"):
         SnapshotMerger().merge_table(unsafe_spec, None, delta, tmp_path / "out")
+
+
+def test_validated_query_rejects_multiple_statements() -> None:
+    import duckdb
+
+    connection = duckdb.connect()
+    try:
+        with pytest.raises(ValueError, match="exactly one statement"):
+            _execute_validated_query(connection, "select 1; select 2")
+    finally:
+        connection.close()
 
 
 def test_warehouse_exporter_reads_only_requested_date_range(tmp_path: Path) -> None:

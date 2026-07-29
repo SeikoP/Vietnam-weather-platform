@@ -143,7 +143,8 @@ class SnapshotMerger:
                     having count(*) > 1
                 )
                 """
-            duplicate_count = connection.execute(
+            duplicate_count = _execute_validated_query(
+                connection,
                 duplicate_query,
                 [str(delta_parquet)],
             ).fetchone()[0]
@@ -177,7 +178,8 @@ class SnapshotMerger:
                 )
                 where _row_number = 1
                 """
-            connection.execute(
+            _execute_validated_query(
+                connection,
                 merge_query,
                 parameters,
             )
@@ -187,7 +189,8 @@ class SnapshotMerger:
                 f"copy (select {columns} from merged order by {keys}) "
                 "to ? (format parquet, compression zstd)"
             )
-            connection.execute(
+            _execute_validated_query(
+                connection,
                 parquet_query,
                 [str(parquet_path)],
             )
@@ -195,7 +198,8 @@ class SnapshotMerger:
                 f"copy (select {columns} from merged order by {keys}) "
                 "to ? (format csv, header true, null '')"
             )
-            connection.execute(
+            _execute_validated_query(
+                connection,
                 csv_query,
                 [str(csv_path)],
             )
@@ -226,7 +230,7 @@ class SnapshotMerger:
         date_range_query = (
             f"select min({column})::varchar, max({column})::varchar from merged"
         )
-        row = connection.execute(date_range_query).fetchone()
+        row = _execute_validated_query(connection, date_range_query).fetchone()
         return row[0], row[1]
 
 
@@ -245,6 +249,23 @@ def _validate_spec_identifiers(spec: TableSpec) -> None:
     )
     for identifier in identifiers:
         _quote_identifier(identifier)
+
+
+def _execute_validated_query(
+    connection: duckdb.DuckDBPyConnection,
+    query: str,
+    parameters: list[object] | None = None,
+) -> duckdb.DuckDBPyConnection:
+    statements = duckdb.extract_statements(query)
+    if len(statements) != 1:
+        raise ValueError("validated DuckDB query must contain exactly one statement")
+    bound_parameters = [] if parameters is None else parameters
+    # Identifier fragments are allowlisted by _validate_spec_identifiers, and all
+    # runtime values are bound parameters. This is the single reviewed raw-SQL boundary.
+    return connection.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query
+        statements[0],
+        bound_parameters,
+    )
 
 
 def _arrow_schema(connection, spec: TableSpec) -> pa.Schema:
