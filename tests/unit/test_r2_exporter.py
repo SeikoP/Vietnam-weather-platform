@@ -88,6 +88,20 @@ def test_merge_rejects_duplicate_keys_inside_delta(tmp_path: Path) -> None:
         raise AssertionError("duplicate delta keys must be rejected")
 
 
+def test_merge_rejects_unsafe_sql_identifiers(tmp_path: Path) -> None:
+    delta = tmp_path / "delta.parquet"
+    _write_parquet(delta, [(1, "2026-07-29", "value")])
+    unsafe_spec = TableSpec(
+        name="sample",
+        primary_key=("id",),
+        columns=("id", "value); drop table merged; --"),
+        date_column=None,
+    )
+
+    with pytest.raises(ValueError, match="unsafe SQL identifier"):
+        SnapshotMerger().merge_table(unsafe_spec, None, delta, tmp_path / "out")
+
+
 def test_warehouse_exporter_reads_only_requested_date_range(tmp_path: Path) -> None:
     engine = create_engine(
         "sqlite://",

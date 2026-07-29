@@ -241,3 +241,28 @@ def test_prune_releases_does_not_delete_newer_unactivated_release() -> None:
 
     assert "v1/releases/20260726T181500Z/manifest.json" not in fake.objects
     assert "v1/releases/20260730T181500Z/manifest.json" in fake.objects
+
+
+def test_prune_releases_ignores_malformed_release_keys() -> None:
+    fake = FakeS3()
+    valid_release_ids = (
+        "20260726T181500Z",
+        "20260727T181500Z",
+        "20260728T181500Z",
+        "20260729T181500Z",
+    )
+    for release_id in valid_release_ids:
+        fake.objects[f"v1/releases/{release_id}/manifest.json"] = b"{}"
+    malformed_keys = (
+        "v1/releases//manifest.json",
+        "v1/releases/0000/manifest.json",
+        "v1/releases/20260725T181500Z",
+    )
+    for key in malformed_keys:
+        fake.objects[key] = b"keep"
+    publisher = R2Publisher(fake, "weather")
+
+    publisher.prune_releases(active_release_id="20260729T181500Z", keep=3)
+
+    assert "v1/releases/20260726T181500Z/manifest.json" not in fake.objects
+    assert all(fake.objects[key] == b"keep" for key in malformed_keys)

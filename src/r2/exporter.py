@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -25,6 +26,8 @@ from sqlalchemy import (
 )
 
 from src.r2.models import TableSpec
+
+SQL_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,7 @@ class WarehouseExporter:
     ) -> int:
         if (start_date is None) != (end_date is None):
             raise ValueError("start_date and end_date must be provided together")
+        _validate_spec_identifiers(spec)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         columns = ", ".join(f"source.{_quote_identifier(column)}" for column in spec.columns)
         query = (
@@ -119,6 +123,7 @@ class SnapshotMerger:
         delta_parquet: Path,
         output_directory: Path,
     ) -> ExportedTable:
+        _validate_spec_identifiers(spec)
         output_directory.mkdir(parents=True, exist_ok=True)
         parquet_path = output_directory / f"{spec.name}.parquet"
         csv_path = output_directory / f"{spec.name}.csv"
@@ -127,8 +132,9 @@ class SnapshotMerger:
 
         connection = duckdb.connect()
         try:
-            duplicate_count = connection.execute(
-                f"""
+            # DuckDB parameters bind values, not SQL identifiers. TableSpec identifiers
+            # are allowlisted above; every file path remains a prepared parameter.
+            duplicate_query = f"""
                 select count(*)
                 from (
                     select {keys}
@@ -136,7 +142,9 @@ class SnapshotMerger:
                     group by {keys}
                     having count(*) > 1
                 )
-                """,
+                """
+            duplicate_count = connection.execute(
+                duplicate_query,
                 [str(delta_parquet)],
             ).fetchone()[0]
             if duplicate_count:
@@ -152,8 +160,7 @@ class SnapshotMerger:
                 current_sql = f"select {columns}, 0 as _source_priority from read_parquet(?)"
                 parameters = [str(current_parquet), str(delta_parquet)]
 
-            connection.execute(
-                f"""
+            merge_query = f"""
                 create temp table merged as
                 select {columns}
                 from (
@@ -169,19 +176,27 @@ class SnapshotMerger:
                     )
                 )
                 where _row_number = 1
-                """,
+                """
+            connection.execute(
+                merge_query,
                 parameters,
             )
             row_count = connection.execute("select count(*) from merged").fetchone()[0]
             min_date, max_date = self._date_range(connection, spec)
-            connection.execute(
+            parquet_query = (
                 f"copy (select {columns} from merged order by {keys}) "
-                "to ? (format parquet, compression zstd)",
-                [str(parquet_path)],
+                "to ? (format parquet, compression zstd)"
             )
             connection.execute(
+                parquet_query,
+                [str(parquet_path)],
+            )
+            csv_query = (
                 f"copy (select {columns} from merged order by {keys}) "
-                "to ? (format csv, header true, null '')",
+                "to ? (format csv, header true, null '')"
+            )
+            connection.execute(
+                csv_query,
                 [str(csv_path)],
             )
         finally:
@@ -208,14 +223,28 @@ class SnapshotMerger:
         if spec.date_column is None:
             return None, None
         column = _quote_identifier(spec.date_column)
-        row = connection.execute(
+        date_range_query = (
             f"select min({column})::varchar, max({column})::varchar from merged"
-        ).fetchone()
+        )
+        row = connection.execute(date_range_query).fetchone()
         return row[0], row[1]
 
 
 def _quote_identifier(value: str) -> str:
-    return f'"{value.replace(chr(34), chr(34) * 2)}"'
+    if SQL_IDENTIFIER_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"unsafe SQL identifier: {value!r}")
+    return f'"{value}"'
+
+
+def _validate_spec_identifiers(spec: TableSpec) -> None:
+    identifiers = (
+        spec.name,
+        *spec.columns,
+        *spec.primary_key,
+        *((spec.date_column,) if spec.date_column is not None else ()),
+    )
+    for identifier in identifiers:
+        _quote_identifier(identifier)
 
 
 def _arrow_schema(connection, spec: TableSpec) -> pa.Schema:
@@ -234,15 +263,16 @@ def _arrow_schema(connection, spec: TableSpec) -> pa.Schema:
 def _arrow_type(column_type) -> pa.DataType:
     if isinstance(column_type, Boolean):
         return pa.bool_()
-    if isinstance(column_type, SmallInteger | Integer | BigInteger):
+    # Tuple syntax is intentional for compatibility with review/security tooling.
+    if isinstance(column_type, (SmallInteger, Integer, BigInteger)):  # noqa: UP038
         return pa.int64()
-    if isinstance(column_type, Float | Numeric):
+    if isinstance(column_type, (Float, Numeric)):  # noqa: UP038
         return pa.float64()
     if isinstance(column_type, DateTime):
         return pa.timestamp("us", tz="UTC" if column_type.timezone else None)
     if isinstance(column_type, Date):
         return pa.date32()
-    if isinstance(column_type, String | Text):
+    if isinstance(column_type, (String, Text)):  # noqa: UP038
         return pa.string()
     raise TypeError(f"Unsupported warehouse column type: {type(column_type).__name__}")
 

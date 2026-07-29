@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,20 @@ import boto3
 from src.r2.config import R2Config
 from src.r2.exporter import ExportedTable
 from src.r2.models import LatestPointer, ReleaseManifest, TableManifest
+
+RELEASE_ID_PATTERN = re.compile(r"\d{8}T\d{6}Z\Z")
+
+
+def _release_id_from_key(key: str) -> str | None:
+    parts = key.split("/")
+    if (
+        len(parts) < 4
+        or parts[0] != "v1"
+        or parts[1] != "releases"
+        or RELEASE_ID_PATTERN.fullmatch(parts[2]) is None
+    ):
+        return None
+    return parts[2]
 
 
 def create_r2_client(config: R2Config) -> Any:
@@ -188,22 +203,21 @@ class R2Publisher:
                 break
             continuation_token = page["NextContinuationToken"]
 
-        release_ids = sorted(
-            {
-                parts[2]
-                for key in keys
-                if len(parts := key.split("/")) >= 4
-            },
-            reverse=True,
-        )
+        keys_by_release: dict[str, list[str]] = {}
+        for key in keys:
+            release_id = _release_id_from_key(key)
+            if release_id is not None:
+                keys_by_release.setdefault(release_id, []).append(key)
+
+        release_ids = sorted(keys_by_release, reverse=True)
         eligible = [release_id for release_id in release_ids if release_id <= active_release_id]
         retained = set(eligible[:keep])
         retained.add(active_release_id)
         deletable = set(eligible) - retained
         delete_keys = [
             key
-            for key in keys
-            if key.split("/")[2] in deletable
+            for release_id in deletable
+            for key in keys_by_release[release_id]
         ]
         for offset in range(0, len(delete_keys), 1_000):
             batch = delete_keys[offset : offset + 1_000]

@@ -11,12 +11,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import create_engine
-
+from src.r2.cli import create_service, release_result, write_result
 from src.r2.config import R2Config
-from src.r2.models import ReleaseManifest
-from src.r2.publisher import R2Publisher, create_r2_client
-from src.r2.service import WarehouseReleaseService
 
 VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -24,20 +20,6 @@ VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 def default_target_date(now: datetime | None = None) -> date:
     value = datetime.now(UTC) if now is None else now
     return value.astimezone(VIETNAM_TZ).date() - timedelta(days=1)
-
-
-def create_service(
-    database_url: str,
-    config: R2Config,
-    batch_size: int,
-) -> tuple[WarehouseReleaseService, R2Publisher, Any]:
-    engine = create_engine(database_url, pool_pre_ping=True)
-    publisher = R2Publisher(create_r2_client(config), config.bucket_name)
-    return (
-        WarehouseReleaseService(engine, publisher, batch_size=batch_size),
-        publisher,
-        engine,
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             stage = "release verification"
             _, manifest, _ = publisher.read_latest()
             publisher.verify_release(manifest)
-            result = _result("verified", config.bucket_name, manifest)
+            result = release_result("verified", config.bucket_name, manifest)
         else:
             stage = "incremental publish"
             target = args.target_date or args.end_date or default_target_date()
@@ -79,10 +61,10 @@ def main(argv: list[str] | None = None) -> int:
             result = (
                 {"status": "noop", "bucket": config.bucket_name, "target_date": target.isoformat()}
                 if manifest is None
-                else _result("published", config.bucket_name, manifest)
+                else release_result("published", config.bucket_name, manifest)
             )
 
-        _write_result(args.result_json, result)
+        write_result(args.result_json, result)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except Exception as exc:
@@ -96,34 +78,6 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if engine is not None and hasattr(engine, "dispose"):
             engine.dispose()
-
-
-def _result(status: str, bucket: str, manifest: ReleaseManifest) -> dict[str, object]:
-    return {
-        "status": status,
-        "bucket": bucket,
-        "release_id": manifest.release_id,
-        "generated_at_vietnam": manifest.generated_at_vietnam,
-        "tables": {
-            name: {
-                "rows": table.row_count,
-                "bytes": table.parquet_bytes + table.csv_bytes,
-                "max_date": table.max_date,
-            }
-            for name, table in manifest.tables.items()
-        },
-    }
-
-
-def _write_result(path: Path | None, result: dict[str, object]) -> None:
-    if path is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
