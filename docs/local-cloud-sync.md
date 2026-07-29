@@ -10,8 +10,8 @@ Mở PowerShell tại thư mục dự án:
 
 ```powershell
 $env:VWDP_POSTGRES_PASSWORD = "<local-secret>"
-docker compose up -d postgres
-docker compose ps postgres
+docker compose --env-file .env -f ops/local/compose.yml up -d postgres
+docker compose --env-file .env -f ops/local/compose.yml ps postgres
 ```
 
 Giữ mật khẩu ngoài Git và không ghi giá trị thật vào `.env.example`.
