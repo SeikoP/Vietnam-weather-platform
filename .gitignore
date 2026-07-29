@@ -17,3 +17,6 @@ help
 /reports/
 .codex/
 node_modules/
+/dashboard/Dashboard.py
+/dashboard/.streamlit/
+/dashboard/.cache/

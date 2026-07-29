@@ -85,7 +85,7 @@ class OpenMeteoClient:
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "daily": ",".join(self.DAILY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._archive_url, params)
 
@@ -117,7 +117,7 @@ class OpenMeteoClient:
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "hourly": ",".join(self.HOURLY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._archive_url, params)
 
@@ -147,7 +147,7 @@ class OpenMeteoClient:
             "longitude": longitude,
             "forecast_days": forecast_days,
             "daily": ",".join(self.DAILY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._forecast_url, params)
 
@@ -162,7 +162,7 @@ class OpenMeteoClient:
             "longitude": longitude,
             "forecast_days": forecast_days,
             "hourly": ",".join(self.HOURLY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._forecast_url, params)
 
@@ -179,7 +179,7 @@ class OpenMeteoClient:
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "hourly": ",".join(self.AQI_HOURLY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._air_quality_url, params)
 
@@ -209,7 +209,7 @@ class OpenMeteoClient:
             "longitude": longitude,
             "forecast_days": forecast_days,
             "hourly": ",".join(self.AQI_HOURLY_VARIABLES),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         return self._get_json(self._air_quality_url, params)
 
@@ -248,7 +248,7 @@ class OpenMeteoClient:
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             variables_key: ",".join(variables),
-            "timezone": "Asia/Bangkok",
+            "timezone": "Asia/Ho_Chi_Minh",
         }
         payload = self._get_json(url, params)
         responses = payload if isinstance(payload, list) else [payload]

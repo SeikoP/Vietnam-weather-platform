@@ -1,7 +1,10 @@
+name: vietnam-weather-platform
+
 services:
   api:
-    build: .
-    env_file: .env
+    build:
+      context: ../..
+    env_file: ../../.env
     ports:
       - "8000:8000"
     command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
@@ -25,3 +28,4 @@ services:
 
 volumes:
   vwdp_postgres_data:
+    name: vietnam-weather-platform_vwdp_postgres_data

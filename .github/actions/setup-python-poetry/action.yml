@@ -1,0 +1,16 @@
+name: Setup Python and Poetry
+description: Install the repository Python toolchain and dependencies
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        cache: poetry
+    - name: Install Poetry
+      shell: bash
+      run: pipx install poetry
+    - name: Install dependencies
+      shell: bash
+      run: poetry install
+

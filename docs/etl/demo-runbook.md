@@ -40,3 +40,17 @@ Nếu muốn tự chọn quận cụ thể, chọn `quick_preset=custom`:
 1. Run type nào nên schedule?
 2. Demo này tạo bao nhiêu API request?
 3. Khi gặp `429`, nên retry hay dừng?
+# Demo release R2
+
+Trong GitHub Actions, trình bày bảy node theo thứ tự và mở `7. Tổng hợp kết quả` để
+chứng minh:
+
+- thời gian bắt đầu/kết thúc/thời lượng đã đổi sang giờ Việt Nam;
+- số dòng upsert của từng ETL;
+- row count và ngày mới nhất trong warehouse;
+- release ID, bucket và thời gian publish R2;
+- nếu ETL lỗi thì chạy manual catch-up;
+- nếu ETL thành công nhưng R2 lỗi thì retry riêng publisher.
+
+Manual preset hai quận chỉ minh họa ETL và không publish R2. Bằng chứng R2 phải lấy từ
+một scheduled run hoàn chỉnh hoặc lệnh publisher bounded đã được xác minh.

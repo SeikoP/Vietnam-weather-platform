@@ -46,3 +46,12 @@ Các input `run_type`, `demo_mode`, `district_ids`, `max_districts`, `start_date
 ```text
 số request = số run type * số quận/huyện được chọn
 ```
+# Xuất bản Cloudflare R2
+
+Workflow scheduled được tách thành bảy job: validate, chuẩn bị database, ba collector,
+publish R2 và summary. Job R2 chỉ chạy khi cả ba collector thành công; manual demo
+không tự publish R2. Cron `18:00 UTC` tương ứng `01:00 UTC+7` ngày hôm sau.
+
+Publisher đọc watermark từ `v1/latest.json`, query mọi ngày còn thiếu từ Supabase,
+merge vào Parquet hiện tại và chỉ active release sau khi toàn bộ Parquet/CSV đã được
+xác minh. Xem `docs/r2-snapshots.md` để bootstrap, repair và rollback.
