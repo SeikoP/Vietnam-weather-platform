@@ -119,6 +119,7 @@ jobs:
           echo "request_delay_seconds=$request_delay" >> "$GITHUB_OUTPUT"
       - name: Run tests
         env:
+          DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
           DISCORD_NOTIFICATIONS_ENABLED: "false"
           DISCORD_WEBHOOK_URL: ""
         run: poetry run pytest --cov=src --cov-report=term-missing

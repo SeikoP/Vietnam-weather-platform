@@ -12,3 +12,14 @@ def test_setup_python_does_not_use_poetry_cache_before_poetry_is_installed():
     )[0]
 
     assert "cache: poetry" not in setup_python_block
+
+
+def test_validate_job_provides_a_database_url_for_settings():
+    workflow_file = Path(__file__).parents[2] / ".github" / "workflows" / "etl.yml"
+    workflow = workflow_file.read_text(encoding="utf-8")
+
+    test_step = workflow.split("- name: Run tests", maxsplit=1)[1].split(
+        "- name: Run Ruff", maxsplit=1
+    )[0]
+
+    assert "DATABASE_URL:" in test_step
