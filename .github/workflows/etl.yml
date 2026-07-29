@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       quick_preset:
-        description: "Chọn nhanh chế độ chạy ETL; chọn custom để tự nhập run_type và giới hạn bên dưới"
+        description: "Chọn nhanh chế độ chạy ETL"
         required: false
         default: "Demo daily - 2 quận"
         type: choice
@@ -19,9 +19,9 @@ on:
           - "Chạy thật AQI hourly - toàn bộ quận"
           - custom
       run_type:
-        description: "Tùy chỉnh: loại ETL cần chạy khi quick_preset=custom; mặc định incremental-daily cho demo ngắn an toàn"
+        description: "Loại ETL khi quick_preset=custom"
         required: false
-        default: "incremental-daily"
+        default: incremental-daily
         type: choice
         options:
           - incremental-daily
@@ -34,181 +34,359 @@ on:
           - forecast-hourly
           - forecast-aqi-hourly
       demo_mode:
-        description: "Tùy chỉnh: bật demo nhỏ; tự giới hạn 2 quận và delay 0 nếu không nhập giới hạn khác"
+        description: "Giới hạn demo nếu dùng custom"
         required: false
         default: false
         type: boolean
       district_ids:
-        description: "Tùy chỉnh: ID quận/huyện cho manual/demo, cách nhau bằng dấu phẩy. Ví dụ: 1,2"
+        description: "Danh sách district ID, cách nhau bằng dấu phẩy"
         required: false
         default: ""
         type: string
       max_districts:
-        description: "Tùy chỉnh: giới hạn N quận đầu tiên khi district_ids để trống. Ví dụ: 2"
+        description: "Giới hạn số quận/huyện"
         required: false
         default: ""
         type: string
       start_date:
-        description: "Tùy chỉnh: ngày bắt đầu YYYY-MM-DD; để trống sẽ dùng mặc định theo run_type"
+        description: "Ngày bắt đầu YYYY-MM-DD"
         required: false
         default: ""
         type: string
       end_date:
-        description: "Tùy chỉnh: ngày kết thúc YYYY-MM-DD; để trống sẽ dùng mặc định theo run_type"
+        description: "Ngày kết thúc YYYY-MM-DD"
         required: false
         default: ""
         type: string
       request_delay_seconds:
-        description: "Tùy chỉnh: số giây nghỉ giữa request API mỗi quận/huyện. Demo có thể dùng 0"
+        description: "Delay giữa request Open-Meteo"
         required: false
         default: ""
         type: string
 
 concurrency:
-  group: etl-${{ github.ref }}
+  group: etl-r2-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  etl:
+  validate:
+    name: 1. Kiểm tra mã nguồn
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DISCORD_NOTIFICATIONS_ENABLED: ${{ vars.DISCORD_NOTIFICATIONS_ENABLED || 'true' }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    outputs:
+      run_type: ${{ steps.resolve.outputs.run_type }}
+      demo_mode: ${{ steps.resolve.outputs.demo_mode }}
+      max_districts: ${{ steps.resolve.outputs.max_districts }}
+      request_delay_seconds: ${{ steps.resolve.outputs.request_delay_seconds }}
     steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
-
-      - name: Record workflow start time
-        run: echo "WORKFLOW_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install Poetry
-        run: pipx install poetry
-
-      - name: Install dependencies
-        run: poetry install
-
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Resolve manual preset
+        id: resolve
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          QUICK_PRESET: ${{ inputs.quick_preset }}
+          INPUT_RUN_TYPE: ${{ inputs.run_type }}
+          INPUT_DEMO_MODE: ${{ inputs.demo_mode }}
+          INPUT_MAX_DISTRICTS: ${{ inputs.max_districts }}
+          INPUT_REQUEST_DELAY: ${{ inputs.request_delay_seconds }}
+        run: |
+          run_type="$INPUT_RUN_TYPE"
+          demo_mode="$INPUT_DEMO_MODE"
+          max_districts="$INPUT_MAX_DISTRICTS"
+          request_delay="$INPUT_REQUEST_DELAY"
+          case "$QUICK_PRESET" in
+            "Demo daily - 2 quận")
+              run_type="incremental-daily"; demo_mode="true"
+              max_districts="${max_districts:-2}"; request_delay="${request_delay:-0}" ;;
+            "Demo hourly - 2 quận")
+              run_type="incremental-hourly"; demo_mode="true"
+              max_districts="${max_districts:-2}"; request_delay="${request_delay:-0}" ;;
+            "Demo AQI hourly - 2 quận")
+              run_type="incremental-aqi-hourly"; demo_mode="true"
+              max_districts="${max_districts:-2}"; request_delay="${request_delay:-0}" ;;
+            "Chạy thật daily - toàn bộ quận") run_type="incremental-daily"; demo_mode="false" ;;
+            "Chạy thật hourly - toàn bộ quận") run_type="incremental-hourly"; demo_mode="false" ;;
+            "Chạy thật AQI hourly - toàn bộ quận")
+              run_type="incremental-aqi-hourly"; demo_mode="false" ;;
+            custom) ;;
+            *) echo "Unknown quick_preset" >&2; exit 1 ;;
+          esac
+          echo "run_type=$run_type" >> "$GITHUB_OUTPUT"
+          echo "demo_mode=$demo_mode" >> "$GITHUB_OUTPUT"
+          echo "max_districts=$max_districts" >> "$GITHUB_OUTPUT"
+          echo "request_delay_seconds=$request_delay" >> "$GITHUB_OUTPUT"
       - name: Run tests
         env:
           DISCORD_NOTIFICATIONS_ENABLED: "false"
           DISCORD_WEBHOOK_URL: ""
         run: poetry run pytest --cov=src --cov-report=term-missing
+      - name: Run Ruff
+        run: poetry run ruff check .
+      - name: Write job report
+        if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id validate --display-name "Kiểm tra mã nguồn"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-validate
+          path: job-report.json
 
+  prepare-database:
+    name: 2. Chuẩn bị database
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
       - name: Run migrations
         run: poetry run alembic upgrade head
-
       - name: Seed districts
         run: poetry run python scripts/seed_provinces.py
-
       - name: Seed date dimension
         run: poetry run python scripts/seed_dim_date.py
+      - name: Write job report
+        if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id prepare-database --display-name "Chuẩn bị database"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-prepare-database
+          path: job-report.json
 
-      - name: Run ETL (scheduled - daily)
-        if: github.event_name == 'schedule'
-        run: poetry run vwdp-etl --run-type incremental-daily
-
-      - name: Run ETL (scheduled - hourly)
-        if: github.event_name == 'schedule'
-        run: poetry run vwdp-etl --run-type incremental-hourly
-
-      - name: Run ETL (scheduled - AQI hourly)
-        if: github.event_name == 'schedule'
-        run: poetry run vwdp-etl --run-type incremental-aqi-hourly
-
-      - name: Run ETL (manual/demo)
-        if: github.event_name == 'workflow_dispatch'
+  collect-daily:
+    name: 3. Thu thập thời tiết daily
+    needs: [validate, prepare-database]
+    if: >-
+      needs.prepare-database.result == 'success' &&
+      (github.event_name == 'schedule' ||
+      endsWith(needs.validate.outputs.run_type, '-daily'))
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Run daily ETL
         env:
-          QUICK_PRESET: ${{ inputs.quick_preset }}
-          RUN_TYPE: ${{ inputs.run_type }}
-          DEMO_MODE: ${{ inputs.demo_mode }}
+          RUN_TYPE: ${{ github.event_name == 'schedule' && 'incremental-daily' || needs.validate.outputs.run_type }}
           DISTRICT_IDS: ${{ inputs.district_ids }}
-          MAX_DISTRICTS: ${{ inputs.max_districts }}
+          MAX_DISTRICTS: ${{ needs.validate.outputs.max_districts }}
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
-          REQUEST_DELAY_SECONDS: ${{ inputs.request_delay_seconds }}
+          REQUEST_DELAY: ${{ needs.validate.outputs.request_delay_seconds }}
         run: |
-          case "$QUICK_PRESET" in
-            "Demo daily - 2 quận"|demo-daily-2-districts)
-              RUN_TYPE="incremental-daily"
-              DEMO_MODE="true"
-              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
-              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
-              ;;
-            "Demo hourly - 2 quận"|demo-hourly-2-districts)
-              RUN_TYPE="incremental-hourly"
-              DEMO_MODE="true"
-              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
-              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
-              ;;
-            "Demo AQI hourly - 2 quận"|demo-aqi-2-districts)
-              RUN_TYPE="incremental-aqi-hourly"
-              DEMO_MODE="true"
-              MAX_DISTRICTS="${MAX_DISTRICTS:-2}"
-              REQUEST_DELAY_SECONDS="${REQUEST_DELAY_SECONDS:-0}"
-              ;;
-            "Chạy thật daily - toàn bộ quận"|full-incremental-daily)
-              RUN_TYPE="incremental-daily"
-              DEMO_MODE="false"
-              DISTRICT_IDS=""
-              MAX_DISTRICTS=""
-              ;;
-            "Chạy thật hourly - toàn bộ quận"|full-incremental-hourly)
-              RUN_TYPE="incremental-hourly"
-              DEMO_MODE="false"
-              DISTRICT_IDS=""
-              MAX_DISTRICTS=""
-              ;;
-            "Chạy thật AQI hourly - toàn bộ quận"|full-incremental-aqi-hourly)
-              RUN_TYPE="incremental-aqi-hourly"
-              DEMO_MODE="false"
-              DISTRICT_IDS=""
-              MAX_DISTRICTS=""
-              ;;
-            custom|"")
-              ;;
-            *)
-              echo "Unknown quick_preset: $QUICK_PRESET" >&2
-              exit 1
-              ;;
-          esac
-
           args=(--run-type "$RUN_TYPE")
-
-          if [ -n "$START_DATE" ]; then
-            args+=(--start-date "$START_DATE")
-          fi
-          if [ -n "$END_DATE" ]; then
-            args+=(--end-date "$END_DATE")
-          fi
-
+          [ -n "$START_DATE" ] && args+=(--start-date "$START_DATE")
+          [ -n "$END_DATE" ] && args+=(--end-date "$END_DATE")
           if [ -n "$DISTRICT_IDS" ]; then
             IFS=',' read -ra ids <<< "$DISTRICT_IDS"
-            for id in "${ids[@]}"; do
-              id="$(echo "$id" | xargs)"
-              if [ -n "$id" ]; then
-                args+=(--district-id "$id")
-              fi
-            done
-          elif [ -n "$MAX_DISTRICTS" ]; then
-            args+=(--max-districts "$MAX_DISTRICTS")
-          elif [ "$DEMO_MODE" = "true" ]; then
-            args+=(--max-districts 2)
-          fi
-
-          if [ -n "$REQUEST_DELAY_SECONDS" ]; then
-            args+=(--request-delay-seconds "$REQUEST_DELAY_SECONDS")
-          elif [ "$DEMO_MODE" = "true" ]; then
-            args+=(--request-delay-seconds 0)
-          fi
-
+            for id in "${ids[@]}"; do args+=(--district-id "$(echo "$id" | xargs)"); done
+          elif [ -n "$MAX_DISTRICTS" ]; then args+=(--max-districts "$MAX_DISTRICTS"); fi
+          [ -n "$REQUEST_DELAY" ] && args+=(--request-delay-seconds "$REQUEST_DELAY")
           poetry run vwdp-etl "${args[@]}"
-
-      - name: Build ETL summary and notify Discord
+      - name: Write job report
         if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id collect-daily --display-name "Thu thập thời tiết daily"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-collect-daily
+          path: job-report.json
+
+  collect-hourly:
+    name: 4. Thu thập thời tiết hourly
+    needs: [validate, prepare-database, collect-daily]
+    if: >-
+      always() && needs.prepare-database.result == 'success' &&
+      ((github.event_name == 'schedule' && needs.collect-daily.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+      endsWith(needs.validate.outputs.run_type, '-hourly') &&
+      !contains(needs.validate.outputs.run_type, 'aqi')))
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Run hourly ETL
         env:
-          JOB_STATUS: ${{ job.status }}
-        run: poetry run python scripts/github_actions_etl_report.py --job-status "$JOB_STATUS" --notify-discord
+          RUN_TYPE: ${{ github.event_name == 'schedule' && 'incremental-hourly' || needs.validate.outputs.run_type }}
+          DISTRICT_IDS: ${{ inputs.district_ids }}
+          MAX_DISTRICTS: ${{ needs.validate.outputs.max_districts }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          REQUEST_DELAY: ${{ needs.validate.outputs.request_delay_seconds }}
+        run: |
+          args=(--run-type "$RUN_TYPE")
+          [ -n "$START_DATE" ] && args+=(--start-date "$START_DATE")
+          [ -n "$END_DATE" ] && args+=(--end-date "$END_DATE")
+          if [ -n "$DISTRICT_IDS" ]; then
+            IFS=',' read -ra ids <<< "$DISTRICT_IDS"
+            for id in "${ids[@]}"; do args+=(--district-id "$(echo "$id" | xargs)"); done
+          elif [ -n "$MAX_DISTRICTS" ]; then args+=(--max-districts "$MAX_DISTRICTS"); fi
+          [ -n "$REQUEST_DELAY" ] && args+=(--request-delay-seconds "$REQUEST_DELAY")
+          poetry run vwdp-etl "${args[@]}"
+      - name: Write job report
+        if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id collect-hourly --display-name "Thu thập thời tiết hourly"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-collect-hourly
+          path: job-report.json
+
+  collect-aqi:
+    name: 5. Thu thập AQI hourly
+    needs: [validate, prepare-database, collect-hourly]
+    if: >-
+      always() && needs.prepare-database.result == 'success' &&
+      ((github.event_name == 'schedule' && needs.collect-hourly.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' &&
+      contains(needs.validate.outputs.run_type, 'aqi-hourly')))
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Run AQI ETL
+        env:
+          RUN_TYPE: ${{ github.event_name == 'schedule' && 'incremental-aqi-hourly' || needs.validate.outputs.run_type }}
+          DISTRICT_IDS: ${{ inputs.district_ids }}
+          MAX_DISTRICTS: ${{ needs.validate.outputs.max_districts }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          REQUEST_DELAY: ${{ needs.validate.outputs.request_delay_seconds }}
+        run: |
+          args=(--run-type "$RUN_TYPE")
+          [ -n "$START_DATE" ] && args+=(--start-date "$START_DATE")
+          [ -n "$END_DATE" ] && args+=(--end-date "$END_DATE")
+          if [ -n "$DISTRICT_IDS" ]; then
+            IFS=',' read -ra ids <<< "$DISTRICT_IDS"
+            for id in "${ids[@]}"; do args+=(--district-id "$(echo "$id" | xargs)"); done
+          elif [ -n "$MAX_DISTRICTS" ]; then args+=(--max-districts "$MAX_DISTRICTS"); fi
+          [ -n "$REQUEST_DELAY" ] && args+=(--request-delay-seconds "$REQUEST_DELAY")
+          poetry run vwdp-etl "${args[@]}"
+      - name: Write job report
+        if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id collect-aqi --display-name "Thu thập AQI hourly"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-collect-aqi
+          path: job-report.json
+
+  publish-r2:
+    name: 6. Xuất bản release R2
+    needs: [collect-daily, collect-hourly, collect-aqi]
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      needs.collect-daily.result == 'success' &&
+      needs.collect-hourly.result == 'success' &&
+      needs.collect-aqi.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
+      R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Record start
+        run: echo "JOB_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Read watermark, merge and publish release
+        run: poetry run python scripts/publish_r2_release.py --result-json r2-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r2-result
+          path: r2-result.json
+          if-no-files-found: ignore
+      - name: Write job report
+        if: always()
+        run: >-
+          python scripts/github_actions_job_report.py
+          --job-id publish-r2 --display-name "Xuất bản release R2"
+          --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
+          --output job-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-report-publish-r2
+          path: job-report.json
+
+  summary:
+    name: 7. Tổng hợp kết quả
+    needs:
+      - validate
+      - prepare-database
+      - collect-daily
+      - collect-hourly
+      - collect-aqi
+      - publish-r2
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DISCORD_NOTIFICATIONS_ENABLED: ${{ vars.DISCORD_NOTIFICATIONS_ENABLED || 'true' }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      JOB_STATUS: >-
+        ${{ (contains(needs.*.result, 'failure') ||
+        contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: job-report-*
+          path: job-reports
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: r2-result
+          path: r2-result
+      - name: Build Vietnamese summary and notify Discord
+        run: >-
+          poetry run python scripts/github_actions_etl_report.py
+          --job-status "$JOB_STATUS"
+          --job-reports-dir job-reports
+          --r2-result r2-result/r2-result.json
+          --notify-discord
         continue-on-error: true

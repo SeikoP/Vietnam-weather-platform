@@ -1,6 +1,11 @@
 from datetime import UTC, datetime
 
-from scripts.github_actions_etl_report import _manual_catchup, _render_markdown
+from scripts.github_actions_etl_report import (
+    _display_dt,
+    _manual_catchup,
+    _render_markdown,
+    _safe_error,
+)
 
 
 def test_scheduled_failure_includes_manual_catchup_commands(monkeypatch) -> None:
@@ -54,3 +59,15 @@ def test_render_markdown_shows_manual_catchup_section(monkeypatch) -> None:
     assert "Manual catch-up required" in markdown
     assert "Missing date: `2026-07-09`" in markdown
     assert ".\\scripts\\run_manual_catchup.ps1" in markdown
+
+
+def test_display_dt_uses_vietnam_timezone() -> None:
+    assert _display_dt(datetime(2026, 7, 29, 18, 0, tzinfo=UTC)) == (
+        "30/07/2026 01:00:00 (UTC+7)"
+    )
+
+
+def test_safe_error_does_not_expose_database_url() -> None:
+    error = RuntimeError("connection failed: postgresql://user:password@host/database")
+
+    assert _safe_error(error) == "RuntimeError"
