@@ -26,6 +26,13 @@ def test_transformer_builds_hourly_records_from_open_meteo_payload() -> None:
     )
 
     assert len(records) == 2
-    assert records[0].observed_at == datetime(2024, 1, 1, 0, 0, tzinfo=ZoneInfo("Asia/Bangkok"))
+    assert records[0].observed_at == datetime(
+        2024,
+        1,
+        1,
+        0,
+        0,
+        tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"),
+    )
     assert records[0].date_key == 20240101
     assert records[1].precipitation == 0.2

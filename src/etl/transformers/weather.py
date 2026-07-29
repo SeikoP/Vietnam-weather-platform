@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from src.etl.validators.weather import AqiHourlyRecord, WeatherDailyRecord, WeatherHourlyRecord
 
-VIETNAM_TZ = ZoneInfo("Asia/Bangkok")
+VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 class WeatherTransformer:

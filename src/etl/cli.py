@@ -20,7 +20,7 @@ HISTORICAL_START_DATE = date(2023, 6, 1)
 INCREMENTAL_LOOKBACK_DAYS = 1
 HISTORICAL_REQUEST_DELAY_SECONDS = 10.0
 STANDARD_REQUEST_DELAY_SECONDS = 1.5
-VIETNAM_TZ = ZoneInfo("Asia/Bangkok")
+VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 RUN_TYPES = {
     "historical-daily",
     "historical-hourly",
