@@ -16,6 +16,7 @@ pw.txt
 help
 /reports/
 .codex/
+/.codebase-memory/
 node_modules/
 /dashboard/Dashboard.py
 /dashboard/.streamlit/
