@@ -150,10 +150,15 @@ Run:
 gh repo view SeikoP/Vietnam-weather-platform --json defaultBranchRef
 git ls-remote --heads origin master main
 git merge-base --is-ancestor origin/master HEAD
-git merge-base --is-ancestor master origin/master
+git merge-base --is-ancestor master agent/consolidate-docs-powerbi-r2
+$featureTree = git show -s --format=%T agent/consolidate-docs-powerbi-r2
+$remoteTree = git show -s --format=%T origin/master
+if ($featureTree -ne $remoteTree) { exit 1 }
 ```
 
-Expected: default is `master`, remote `main` is absent, and both ancestry checks return `0`.
+Expected: default is `master`, remote `main` is absent, `HEAD` can fast-forward the remote,
+and the old local `master` history remains reachable from the feature branch whose tree matches
+the squash-merge commit on `origin/master`.
 
 - [ ] **Step 2: Rename the GitHub branch through the official API**
 
