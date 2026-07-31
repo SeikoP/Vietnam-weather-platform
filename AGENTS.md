@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Python data platform for Hanoi weather and AQI data. Core source code lives in `src/`. API routes are in `src/api/`, database models and migrations are in `src/database/`, ETL components are in `src/etl/`, Pydantic response models are in `src/models/`, and database access code is in `src/repositories/`.
+This repository is a Python data platform for Hanoi weather and AQI data. Core source code lives in `src/`. Database models and migrations are in `src/database/`, ETL components are in `src/etl/`, and R2 publishing code is in `src/r2/`.
 
-Operational scripts live in `scripts/`. Tests are split by scope under `tests/api/` and `tests/unit/`. Alembic migrations are stored in `src/database/migrations/versions/`.
+Operational scripts live in `scripts/`. Tests live under `tests/unit/`. Alembic migrations are stored in `src/database/migrations/versions/`.
 
 ## Build, Test, and Development Commands
 
@@ -13,7 +13,6 @@ Operational scripts live in `scripts/`. Tests are split by scope under `tests/ap
 - `poetry run ruff check .`: lint imports, style, bug-prone patterns, and modernization rules.
 - `poetry run black .`: format Python files with the repository line length.
 - `poetry run alembic upgrade head`: apply database migrations.
-- `poetry run uvicorn src.api.app:app --reload`: run the FastAPI app locally.
 - `poetry run vwdp-etl --run-type incremental-daily`: run an ETL mode through the CLI.
 
 ## Coding Style & Naming Conventions
@@ -24,9 +23,9 @@ Use `snake_case` for modules, functions, variables, and database-oriented fields
 
 ## Testing Guidelines
 
-Use pytest. Place unit tests in `tests/unit/` and API tests in `tests/api/`. Name test files `test_*.py` and test functions `test_*`.
+Use pytest. Place unit tests in `tests/unit/`. Name test files `test_*.py` and test functions `test_*`.
 
-When changing ETL logic, cover transformer, validator, loader, or CLI behavior as appropriate. When changing routes, add or update API tests and route registration checks. Run `poetry run pytest` before opening a PR.
+When changing ETL logic, cover transformer, validator, loader, or CLI behavior as appropriate. Run `poetry run pytest` before opening a PR.
 
 ## Commit & Pull Request Guidelines
 

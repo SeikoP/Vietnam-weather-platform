@@ -20,7 +20,7 @@ AQI và giao diện.
 - Không thay đổi quyền public read-only hiện tại của dữ liệu R2.
 - Không dùng `.env`, Supabase hoặc database credential trong dashboard.
 - Không đưa `dashboard/Dashboard.py` vào Git.
-- Không xóa dữ liệu Docker hoặc Supabase.
+- Không xóa hoặc thay đổi dữ liệu Supabase.
 
 ---
 
@@ -61,7 +61,7 @@ AQI và giao diện.
 **Files:**
 - Modify: `pyproject.toml`
 - Modify: `poetry.lock`
-- Modify: `docs/r2-snapshots.md`
+- Modify: `docs/r2-reporting.md`
 
 **Interfaces:**
 - Consumes: dashboard local đã chuyển sang R2.
