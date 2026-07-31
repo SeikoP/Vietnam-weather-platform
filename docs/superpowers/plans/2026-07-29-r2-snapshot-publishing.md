@@ -2,8 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bootstrap the Hanoi warehouse from local PostgreSQL and publish idempotent,
-versioned R2 releases after scheduled Supabase ETL runs.
+**Goal:** Publish idempotent, versioned R2 releases after scheduled Supabase ETL runs.
 
 **Architecture:** Supabase remains the production source of truth. A single publisher
 downloads the latest Parquet release, queries only missing or explicitly repaired
@@ -65,20 +64,19 @@ Cloudflare R2 S3 API, pytest, GitHub Actions.
 
 **Files:**
 - Create: `src/r2/publisher.py`
-- Create: `scripts/bootstrap_r2_history.py`
 - Create: `scripts/publish_r2_release.py`
 - Test: `tests/unit/test_r2_publisher.py`
 - Test: `tests/unit/test_r2_cli.py`
 
 **Interfaces:**
-- Produces: `R2Publisher.bootstrap()`, `R2Publisher.publish_incremental()`,
-  credential-safe CLI exit codes, and `--result-json`.
+- Produces: `R2Publisher.publish_incremental()`, credential-safe CLI exit codes,
+  and `--result-json`.
 
 - [ ] Write fake-S3 tests proving objects upload under an immutable release prefix,
   every object is verified, and `latest.json` is written last.
 - [ ] Write CLI tests for watermark mode, bounded forced repair, and safe failures.
 - [ ] Run tests and verify RED.
-- [ ] Implement R2 S3 client, bootstrap, incremental catch-up, repair, verification,
+- [ ] Implement R2 S3 client, incremental catch-up, repair, verification,
   retention, and result JSON.
 - [ ] Run focused tests and Ruff.
 
@@ -101,20 +99,19 @@ Cloudflare R2 S3 API, pytest, GitHub Actions.
 - [ ] Render start/end/duration, ETL rows, warehouse rows and R2 release in Vietnamese.
 - [ ] Run focused tests and Ruff.
 
-### Task 5: Runbook, live bootstrap, and verification
+### Task 5: Runbook and live verification
 
 **Files:**
-- Create: `docs/r2-snapshots.md`
+- Create: `docs/r2-reporting.md`
 - Modify: `.env.example`
 - Modify: `docs/etl/automation.md`
 - Modify: `docs/etl/demo-runbook.md`
 
 **Interfaces:**
-- Produces repeatable local bootstrap, R2-only retry, repair, Power BI, and rollback
+- Produces repeatable R2-only retry, repair, reporting-tool connection, and rollback
   instructions.
 
 - [ ] Document Cloudflare bucket/token/custom-domain setup without credential values.
-- [ ] Confirm required local environment variable names exist without printing values.
-- [ ] Run `bootstrap_r2_history.py` against `vwdp-postgres`.
+- [ ] Confirm required environment variable names exist without printing values.
 - [ ] Verify `latest.json`, all 12 data objects, hashes, row counts, and max dates.
 - [ ] Run full pytest, Ruff and `git diff --check`.

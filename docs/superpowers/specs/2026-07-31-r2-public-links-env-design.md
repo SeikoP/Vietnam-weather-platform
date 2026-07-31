@@ -3,7 +3,8 @@
 ## Mục tiêu
 
 Tạo một script Python lấy manifest của release R2 đang hoạt động, dựng đủ sáu URL CSV
-ổn định cho Power BI/dashboard và cập nhật `.env` mà không làm thay đổi các biến khác.
+ổn định cho các công cụ xây dựng báo cáo và cập nhật `.env` mà không làm thay đổi các
+biến khác.
 
 ## Luồng xử lý
 
@@ -30,4 +31,4 @@ Tạo một script Python lấy manifest của release R2 đang hoạt động, 
 
 - Không dùng R2 credentials để list bucket.
 - Không khởi động Streamlit sau khi cập nhật `.env`.
-- Không sửa các thay đổi Power BI/tài liệu đang tồn tại trong working tree.
+- Không sửa các thay đổi không liên quan đang tồn tại trong working tree.

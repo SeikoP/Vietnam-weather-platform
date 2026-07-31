@@ -29,8 +29,7 @@ erDiagram
 ```
 
 Weather hourly và AQI không lưu `date_key` hoặc timestamp lặp trong fact row; thời
-gian được lấy qua `dim_hour`. Daily vẫn giữ `observed_date` để hỗ trợ truy vấn API
-và lọc snapshot.
+gian được lấy qua `dim_hour`. Daily vẫn giữ `observed_date` để lọc snapshot.
 
 ## Schema `monitoring`
 
@@ -39,7 +38,7 @@ và lọc snapshot.
 | `etl_runs` | Trạng thái, thời gian, số row và lỗi tóm tắt của mỗi run |
 | `etl_logs` | Sự kiện có cấu trúc gắn với `etl_run_id` |
 | `validation_errors` | Giá trị không hợp lệ, nguyên nhân và mức độ |
-| `api_requests` | Schema đã có; API middleware hiện chỉ phát structured log, chưa insert vào bảng |
+| `api_requests` | Bảng schema hiện có nhưng không nằm trong luồng vận hành hiện tại |
 
 ## Nguyên Tắc Thiết Kế
 
@@ -76,5 +75,5 @@ order by schemaname, relname;
 ```
 
 Sau migration thay đổi storage hoặc drop column, kiểm tra thêm khóa ngoại mồ côi,
-min/max ngày của ba fact table và smoke test API/ETL. Chỉ chạy `VACUUM FULL` trong
+min/max ngày của ba fact table và smoke test ETL. Chỉ chạy `VACUUM FULL` trong
 cửa sổ bảo trì vì lệnh khóa bảng và cần chạy ngoài transaction migration.

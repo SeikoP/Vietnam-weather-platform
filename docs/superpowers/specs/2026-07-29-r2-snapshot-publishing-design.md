@@ -3,9 +3,8 @@
 ## Kết luận
 
 Supabase PostgreSQL là nguồn dữ liệu chuẩn của pipeline production. Cloudflare R2 là
-lớp phân phối chỉ đọc cho Power BI và member. Dữ liệu lịch sử ban đầu được bootstrap
-trực tiếp từ PostgreSQL local; các lần chạy hằng ngày chỉ đọc phần còn thiếu từ
-Supabase theo watermark.
+lớp phân phối chỉ đọc cho các công cụ xây dựng báo cáo. Các lần chạy hằng ngày đọc
+phần còn thiếu từ Supabase theo watermark.
 
 Project hiện phục vụ 30 quận/huyện Hà Nội. R2 phản chiếu sáu bảng trong schema
 `analyst`; không mở rộng sang 63 tỉnh/thành trong phạm vi này.
@@ -20,7 +19,7 @@ Open-Meteo
   -> merge với Parquet của release hiện tại bằng DuckDB
   -> release mới gồm Parquet + CSV
   -> cập nhật latest.json cuối cùng
-  -> Power BI đọc CSV qua custom domain
+  -> công cụ báo cáo đọc CSV qua HTTP
 ```
 
 Không dual-write trực tiếp từ extractor vào Supabase và R2. R2 chỉ được publish sau
@@ -62,15 +61,16 @@ hai release trước để rollback.
 
 Sau khi kiểm tra release bất biến, publisher copy sáu CSV sang
 `v1/current/analyst/<table>.csv` và xác minh size/checksum. Các alias này là giao diện
-ổn định cho Power BI; `latest.json` chỉ được activate sau khi toàn bộ alias thành công.
+ổn định cho công cụ báo cáo; `latest.json` chỉ được activate sau khi toàn bộ alias
+thành công.
 
 Không lưu PostgreSQL dump trong bucket public. Backup database là luồng riêng, ngoài
-phạm vi publisher Power BI.
+phạm vi publisher R2.
 
 ## Định dạng
 
 - Parquet là trạng thái chuẩn để GitHub Actions tải về và merge.
-- CSV UTF-8 là giao diện ổn định cho Power BI Web connector.
+- CSV UTF-8 là giao diện ổn định cho công cụ hỗ trợ tải dữ liệu qua HTTP.
 - JSON dùng cho manifest và con trỏ release.
 - Null được xuất thành chuỗi trống trong CSV; ngày và timestamp dùng ISO 8601.
 - Thứ tự cột lấy từ SQLAlchemy model và không phụ thuộc thứ tự trả về ngẫu nhiên.
@@ -90,12 +90,6 @@ Merge dimension trước fact. Khi source và snapshot có cùng khóa, source t
 giá trị của row cũ. Chạy lại cùng một khoảng ngày phải cho cùng row count và không
 tạo duplicate.
 
-## Bootstrap
-
-Bootstrap đọc `LOCAL_DATABASE_URL`, stream toàn bộ sáu bảng từ PostgreSQL local,
-ghi Parquet và CSV, kiểm tra row count/PK/FK/checksum rồi upload release đầu tiên.
-Chỉ sau khi toàn bộ 12 data object và manifest tồn tại mới ghi `v1/latest.json`.
-
 ## Daily publish và repair
 
 Daily publisher đọc `v1/latest.json`. Watermark mặc định là `max_date` của release;
@@ -107,7 +101,7 @@ khoảng ngày; hai dimension nhỏ còn lại được đọc toàn bộ để 
 
 Repair dữ liệu đã publish bắt buộc truyền `--start-date`, `--end-date` và
 `--force-republish`. Delete không được suy ra từ incremental upsert; một full
-bootstrap/reconciliation mới loại bỏ được row đã xóa ở source.
+reconciliation đầy đủ mới loại bỏ được row đã xóa ở source.
 
 ## Tính nguyên tử và lỗi
 
@@ -120,7 +114,7 @@ Workflow dùng một concurrency group cho ETL và R2 publisher. Nếu `latest.j
 Failure behavior:
 
 - ETL lỗi: không chạy publisher.
-- Publisher lỗi trước activate: Power BI tiếp tục dùng release cũ.
+- Publisher lỗi trước activate: công cụ báo cáo tiếp tục dùng release cũ.
 - Activate lỗi: release mới tồn tại nhưng chưa active; retry được.
 - Summary/Discord lỗi: không làm thay đổi trạng thái ETL hoặc release.
 
@@ -156,11 +150,10 @@ GitHub Variables:
 - `R2_PUBLIC_BASE_URL`
 - `DISCORD_NOTIFICATIONS_ENABLED`
 
-Local bootstrap dùng thêm `LOCAL_DATABASE_URL`. Không log URL database, access key,
-secret key hoặc exception chứa credential.
+Không log URL database, access key, secret key hoặc exception chứa credential.
 
-## Power BI
+## Công cụ báo cáo
 
-Power Query dùng hostname cố định từ `R2_PUBLIC_BASE_URL` và `Web.Contents` với
-`RelativePath`. Một function chung đọc `v1/current/analyst/<table>.csv`; sáu query
-bảng chỉ truyền tên bảng. Scheduled refresh đặt sau workflow ít nhất 30 phút.
+Công cụ báo cáo dùng hostname cố định từ `R2_PUBLIC_BASE_URL` và đọc sáu CSV dưới
+`v1/current/analyst/` qua HTTP. Power BI có thể dùng `Web.Contents` với
+`RelativePath`; lịch refresh nên đặt sau workflow ít nhất 30 phút.
