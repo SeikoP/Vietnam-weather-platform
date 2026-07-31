@@ -1,59 +1,65 @@
 # Nền Tảng Dữ Liệu Thời Tiết Hà Nội
 
-Nền tảng ETL, warehouse, API và reporting cho dữ liệu thời tiết/AQI cấp quận/huyện tại Hà Nội.
+Nền tảng thu thập thời tiết và chất lượng không khí cho 30 quận/huyện Hà Nội,
+lưu dữ liệu phân tích trong PostgreSQL, cung cấp FastAPI và xuất snapshot lên
+Cloudflare R2 cho Power BI.
 
-## Thành Phần
+## Luồng Dữ Liệu
 
-- ETL lấy dữ liệu từ Open-Meteo weather/AQI.
-- PostgreSQL lưu dữ liệu phân tích trong schema `analyst`.
-- FastAPI cung cấp dữ liệu đã xử lý.
-- Monitoring lưu ETL run, log, validation errors và API requests.
-- Power BI đọc CSV release từ Cloudflare R2, không query trực tiếp Supabase.
+```text
+Open-Meteo -> ETL -> Supabase PostgreSQL -> FastAPI
+                                      \-> Cloudflare R2 -> Power BI
+                                      \-> PostgreSQL local (tùy chọn)
+```
 
-## Lệnh Chính
+## Thành Phần Chính
+
+- `src/etl/`: extract, transform, validate và upsert dữ liệu.
+- `src/database/`: sáu bảng `analyst`, bốn bảng `monitoring` và Alembic.
+- `src/api/`: API đọc dữ liệu warehouse.
+- `src/r2/`: tạo, xác minh và kích hoạt release CSV/Parquet.
+- `src/sync/`: đồng bộ Supabase về PostgreSQL local theo watermark.
+- `.github/workflows/etl.yml`: lịch chạy và điều phối ETL hằng ngày.
+
+## Bắt Đầu Nhanh
+
+Yêu cầu Python 3.13 và Poetry. Sao chép `.env.example` thành `.env`, sau đó thay
+các giá trị mẫu; không commit `.env`.
 
 ```powershell
 poetry install
-poetry run pytest
 poetry run alembic upgrade head
+poetry run python scripts/seed_provinces.py
+poetry run python scripts/seed_dim_date.py
+poetry run vwdp-api
+```
+
+API mặc định chạy tại `http://localhost:8000`; Swagger UI ở `/docs`.
+
+## Lệnh Thường Dùng
+
+```powershell
+# ETL cho ngày hôm qua
+poetry run vwdp-etl --run-type incremental-daily
+
+# Demo hai quận/huyện
+poetry run vwdp-etl --run-type incremental-daily --max-districts 2 --request-delay-seconds 0
+
+# Kiểm tra mã nguồn
+poetry run pytest
+poetry run ruff check .
+
+# API có auto-reload khi phát triển
 poetry run uvicorn src.api.app:app --reload
 ```
 
-## Chạy ETL
-
-ETL được expose dưới dạng CLI `vwdp-etl` trong `pyproject.toml`:
-
-```toml
-vwdp-etl = "src.etl.cli:main"
-```
-
-```powershell
-poetry run vwdp-etl --run-type incremental-daily
-```
-
-Demo tiết kiệm quota:
-
-```powershell
-poetry run vwdp-etl --run-type incremental-daily --district-id 1 --district-id 2 --request-delay-seconds 0
-```
-
-Trên GitHub Actions, dùng input `quick_preset` để chọn nhanh demo nhỏ hoặc chạy thật mà
-không cần nhớ toàn bộ `run_type`.
-
-Historical demo ngắn:
-
-```powershell
-poetry run vwdp-etl --run-type historical-daily --start-date 2026-07-01 --end-date 2026-07-03 --max-districts 2 --request-delay-seconds 0
-```
+Nếu Poetry không có trên `PATH`, dùng các executable trong `.venv\Scripts\` như
+được ghi trong tài liệu vận hành.
 
 ## Tài Liệu
 
-- `docs/architecture/overview.md`: kiến trúc tổng quan.
-- `docs/etl/flow.md`: luồng ETL.
-- `docs/etl/automation.md`: GitHub Actions và demo mode.
-- `docs/etl/demo-runbook.md`: kịch bản demo.
-- `docs/database/warehouse-design.md`: mô hình warehouse.
-- `docs/database/data-cleanup.md`: cleanup dữ liệu warehouse.
-- `docs/powerbi/guide.md`: kết nối Power BI.
-- `docs/r2-snapshots.md`: publish, verify và rollback release R2.
-- `docs/local-cloud-sync.md`: PostgreSQL Docker local tùy chọn cho recovery.
+- [Kiến trúc và API](docs/architecture.md)
+- [Mô hình dữ liệu](docs/data-model.md)
+- [ETL và tự động hóa](docs/etl.md)
+- [Triển khai và đồng bộ local](docs/deployment.md)
+- [Cloudflare R2 và Power BI](docs/r2-powerbi.md)
