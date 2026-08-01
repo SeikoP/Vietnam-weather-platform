@@ -158,7 +158,14 @@ class SnapshotMerger:
                 )
                 parameters = [str(delta_parquet), str(delta_parquet)]
             else:
-                current_sql = f"select {columns}, 0 as _source_priority from read_parquet(?)"
+                current_columns = _parquet_projection(
+                    connection,
+                    current_parquet,
+                    spec.columns,
+                )
+                current_sql = (
+                    f"select {current_columns}, 0 as _source_priority from read_parquet(?)"
+                )
                 parameters = [str(current_parquet), str(delta_parquet)]
 
             merge_query = f"""
@@ -232,6 +239,24 @@ class SnapshotMerger:
         )
         row = _execute_validated_query(connection, date_range_query).fetchone()
         return row[0], row[1]
+
+
+def _parquet_projection(
+    connection: duckdb.DuckDBPyConnection,
+    parquet_path: Path,
+    columns: tuple[str, ...],
+) -> str:
+    described = connection.execute(
+        "describe select * from read_parquet(?)",
+        [str(parquet_path)],
+    ).fetchall()
+    available = {row[0] for row in described}
+    return ", ".join(
+        _quote_identifier(column)
+        if column in available
+        else f"NULL AS {_quote_identifier(column)}"
+        for column in columns
+    )
 
 
 def _quote_identifier(value: str) -> str:

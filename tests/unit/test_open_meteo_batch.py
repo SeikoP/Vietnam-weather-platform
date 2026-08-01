@@ -72,12 +72,14 @@ def test_fetch_historical_hourly_batch_maps_response_by_district_order() -> None
     ]
     mock_response.raise_for_status = MagicMock()
 
-    with patch("requests.get", return_value=mock_response):
+    with patch("requests.get", return_value=mock_response) as mock_get:
         result = client.fetch_historical_hourly_batch(
             [(1, 21.0333, 105.8333), (2, 21.0285, 105.8542)],
             start_date=date(2026, 7, 6),
             end_date=date(2026, 7, 6),
         )
 
+    call_params = mock_get.call_args.kwargs["params"]
+    assert "wind_direction_10m" in call_params["hourly"].split(",")
     assert result[1]["hourly"]["temperature_2m"] == [28.0]
     assert result[2]["hourly"]["temperature_2m"] == [29.0]

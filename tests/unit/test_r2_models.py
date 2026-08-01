@@ -30,6 +30,9 @@ def test_table_specs_match_analyst_schema_primary_keys() -> None:
         "observed_date",
         "observed_at",
     )
+    assert "wind_direction_10m" in next(
+        spec for spec in TABLE_SPECS if spec.name == "fact_weather_hourly"
+    ).columns
 
 
 def test_release_manifest_round_trip_preserves_vietnam_timestamp() -> None:

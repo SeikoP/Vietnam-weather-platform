@@ -73,6 +73,7 @@ class WeatherTransformer:
                     surface_pressure=self._val(hourly, "surface_pressure", index),
                     vapour_pressure_deficit=self._val(hourly, "vapour_pressure_deficit", index),
                     wind_speed_10m=self._val(hourly, "wind_speed_10m", index),
+                    wind_direction_10m=self._val(hourly, "wind_direction_10m", index),
                     wind_gusts_10m=self._val(hourly, "wind_gusts_10m", index),
                     cloud_cover=self._val(hourly, "cloud_cover", index),
                     shortwave_radiation=self._val(hourly, "shortwave_radiation", index),

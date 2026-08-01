@@ -61,6 +61,7 @@ class WeatherWarehouseLoader:
                     "surface_pressure": r.surface_pressure,
                     "vapour_pressure_deficit": r.vapour_pressure_deficit,
                     "wind_speed_10m": r.wind_speed_10m,
+                    "wind_direction_10m": r.wind_direction_10m,
                     "wind_gusts_10m": r.wind_gusts_10m,
                     "cloud_cover": r.cloud_cover,
                     "shortwave_radiation": r.shortwave_radiation,
