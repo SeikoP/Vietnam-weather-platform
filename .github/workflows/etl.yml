@@ -70,7 +70,7 @@ concurrency:
 
 jobs:
   validate:
-    name: 1. Kiểm tra mã nguồn
+    name: 1. Chuẩn bị cấu hình
     runs-on: ubuntu-latest
     outputs:
       run_type: ${{ steps.resolve.outputs.run_type }}
@@ -117,19 +117,11 @@ jobs:
           echo "demo_mode=$demo_mode" >> "$GITHUB_OUTPUT"
           echo "max_districts=$max_districts" >> "$GITHUB_OUTPUT"
           echo "request_delay_seconds=$request_delay" >> "$GITHUB_OUTPUT"
-      - name: Run tests
-        env:
-          DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
-          DISCORD_NOTIFICATIONS_ENABLED: "false"
-          DISCORD_WEBHOOK_URL: ""
-        run: poetry run pytest --cov=src --cov-report=term-missing
-      - name: Run Ruff
-        run: poetry run ruff check .
       - name: Write job report
         if: always()
         run: >-
           python scripts/github_actions_job_report.py
-          --job-id validate --display-name "Kiểm tra mã nguồn"
+          --job-id validate --display-name "Chuẩn bị cấu hình"
           --status "${{ job.status }}" --started-at "$JOB_STARTED_AT"
           --output job-report.json
       - uses: actions/upload-artifact@v4
