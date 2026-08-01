@@ -32,6 +32,7 @@ class HourlyWeatherResponse(BaseModel):
     surface_pressure: float | None = None
     vapour_pressure_deficit: float | None = None
     wind_speed_10m: float | None = None
+    wind_direction_10m: float | None = None
     wind_gusts_10m: float | None = None
     cloud_cover: float | None = None
     shortwave_radiation: float | None = None

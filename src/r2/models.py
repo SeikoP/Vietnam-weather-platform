@@ -68,6 +68,7 @@ TABLE_SPECS = (
             "surface_pressure",
             "vapour_pressure_deficit",
             "wind_speed_10m",
+            "wind_direction_10m",
             "wind_gusts_10m",
             "cloud_cover",
             "shortwave_radiation",

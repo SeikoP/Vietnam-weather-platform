@@ -54,6 +54,7 @@ class WeatherHourlyRecord:
     surface_pressure: float | None
     vapour_pressure_deficit: float | None
     wind_speed_10m: float | None
+    wind_direction_10m: float | None
     wind_gusts_10m: float | None
     cloud_cover: float | None
     shortwave_radiation: float | None
@@ -140,6 +141,7 @@ class WeatherValidator:
         errors.extend(self._range("surface_pressure", record.surface_pressure, 950, 1050))
         errors.extend(self._range("vapour_pressure_deficit", record.vapour_pressure_deficit, 0, 8))
         errors.extend(self._range("wind_speed_10m", record.wind_speed_10m, 0, 100))
+        errors.extend(self._range("wind_direction_10m", record.wind_direction_10m, 0, 360))
         errors.extend(self._range("wind_gusts_10m", record.wind_gusts_10m, 0, 150))
         errors.extend(self._range("cloud_cover", record.cloud_cover, 0, 100))
         errors.extend(self._range("shortwave_radiation", record.shortwave_radiation, 0, 1400))

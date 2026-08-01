@@ -255,3 +255,7 @@ def _log_summary(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

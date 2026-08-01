@@ -80,6 +80,49 @@ def test_merge_is_idempotent_and_csv_header_is_stable(tmp_path: Path) -> None:
         assert next(csv.reader(handle)) == ["id", "observed_date", "value"]
 
 
+def test_merge_fills_new_nullable_column_when_current_snapshot_uses_old_schema(
+    tmp_path: Path,
+) -> None:
+    import duckdb
+
+    current = tmp_path / "current.parquet"
+    delta = tmp_path / "delta.parquet"
+    connection = duckdb.connect()
+    connection.execute(
+        "copy (select 1 as district_id, 10 as hour_key, 5.0::real as wind_speed_10m) "
+        "to ? (format parquet)",
+        [str(current)],
+    )
+    connection.execute(
+        "copy (select 1 as district_id, 11 as hour_key, 6.0::real as wind_speed_10m, "
+        "90.0::real as wind_direction_10m) to ? (format parquet)",
+        [str(delta)],
+    )
+    connection.close()
+    spec = TableSpec(
+        name="fact_weather_hourly",
+        primary_key=("district_id", "hour_key"),
+        columns=(
+            "district_id",
+            "hour_key",
+            "wind_speed_10m",
+            "wind_direction_10m",
+        ),
+        date_column=None,
+    )
+
+    result = SnapshotMerger().merge_table(spec, current, delta, tmp_path / "out")
+
+    connection = duckdb.connect()
+    rows = connection.execute(
+        "select district_id, hour_key, wind_speed_10m, wind_direction_10m "
+        "from read_parquet(?) order by hour_key",
+        [str(result.parquet_path)],
+    ).fetchall()
+    connection.close()
+    assert rows == [(1, 10, 5.0, None), (1, 11, 6.0, 90.0)]
+
+
 def test_merge_rejects_duplicate_keys_inside_delta(tmp_path: Path) -> None:
     delta = tmp_path / "delta.parquet"
     _write_parquet(delta, [(1, "2026-07-29", "first"), (1, "2026-07-29", "second")])

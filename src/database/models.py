@@ -110,6 +110,7 @@ class FactWeatherHourly(Base):
     surface_pressure: Mapped[float | None] = mapped_column(REAL)
     vapour_pressure_deficit: Mapped[float | None] = mapped_column(REAL)
     wind_speed_10m: Mapped[float | None] = mapped_column(REAL)
+    wind_direction_10m: Mapped[float | None] = mapped_column(REAL)
     wind_gusts_10m: Mapped[float | None] = mapped_column(REAL)
     cloud_cover: Mapped[float | None] = mapped_column(REAL)
     shortwave_radiation: Mapped[float | None] = mapped_column(REAL)
